@@ -99,17 +99,64 @@ pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Toke
     return try allocator_.dupe(u32, tokens.items);
 }
 
-pub fn read_tokenizer() !*Tokenizer {
-    const allocator = gpa.allocator();
+pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
+    var arena = std.heap.ArenaAllocator.init(base_allocator);
+    const arena_allocator = arena.allocator();
 
     const checkpoint_path = "/mnt/data/LLaMA/model44m.bin";
     var file = try std.fs.cwd().openFile(checkpoint_path, .{});
     defer file.close();
 
-    const model_reader = file.reader();
+    var model_file_buffered = std.io.bufferedReaderSize(64 << 20, file.reader());
+    var model_reader = model_file_buffered.reader();
+
+    // Read weights file
     var config = try model_reader.readStruct(ConfigReader);
 
     std.log.info("{}", .{config});
+
+    const n_layers = @as(usize, @intCast(config.n_layers));
+    const dim = @as(usize, @intCast(config.dim));
+    const hidden_dim = @as(usize, @intCast(config.hidden_dim));
+    const vocab_size = @as(usize, @intCast(config.vocab_size));
+    const seq_len = @as(usize, @intCast(config.seq_len));
+
+    //Global
+    // - token_embedding = vocab_size * dim
+
+    //Layer:
+    // - rms attention weight = layer * dim
+    // - query weight = layer * dim * dim
+    // - key weight = layer * dim * dim
+    // - value weight = layer * dim * dim
+    // - output weight = layer * dim * dim
+    // - rms ffn weight = layer * dim * dim
+    // - w1 weight = layer * dim * hidden_dim
+    // - w2 weights = layer * hidden_dim * dim
+    // - w3 weights = layer * dim * hidden_dim
+
+    // final
+    // - rms final weight = dim
+    // - freq real = seq_len * head_size / 2
+    // - freq img = seq_len * head_size / 2
+    //  - final class weights (if not shared with embedding) vocab * dim
+
+    var weight_buffer = std.ArrayList(f32).init(arena_allocator);
+    try weight_buffer.resize(@as(usize, @intCast(vocab_size * dim)));
+
+    var size = [_]usize{ vocab_size, dim };
+    var vocab_tensor = try Tensor.init_from_data(
+        base_allocator,
+        &size,
+        .Storage,
+        weight_buffer.items,
+    );
+    _ = vocab_tensor;
+    _ = n_layers;
+    _ = hidden_dim;
+    _ = seq_len;
+
+    // Read tokenizer
 
     var token_file = try std.fs.cwd().openFile("/mnt/data/LLaMA/tokenizer.bin", .{});
 
@@ -124,14 +171,14 @@ pub fn read_tokenizer() !*Tokenizer {
     // if ((try token_file.read(std.mem.asBytes(&max_token_length))) != 4)
     //     return error.InvalidTokenizerFile;
 
-    var vocab = std.ArrayList([]const u8).init(allocator);
+    var vocab = std.ArrayList([]const u8).init(base_allocator);
 
     // var scores = std.ArrayList(f32).init(allocator);
 
-    var tokenizer = try allocator.create(Tokenizer);
+    var tokenizer = try base_allocator.create(Tokenizer);
     tokenizer.* = .{
-        .tokens = std.ArrayList([]const u8).init(allocator),
-        .back_map = std.StringHashMap(Tokenizer.Token).init(allocator),
+        .tokens = std.ArrayList([]const u8).init(base_allocator),
+        .back_map = std.StringHashMap(Tokenizer.Token).init(base_allocator),
     };
 
     for (0..@as(usize, @intCast(config.vocab_size))) |idx| {
@@ -140,7 +187,7 @@ pub fn read_tokenizer() !*Tokenizer {
         // const score: f32 = @bitCast(try token_reader.readInt(u32, std.builtin.Endian.Little)); //strange
         const token_len = try token_reader.readInt(u32, std.builtin.Endian.Little);
 
-        var tokens = try allocator.alloc(u8, token_len);
+        var tokens = try base_allocator.alloc(u8, token_len);
         const read_amt = try token_reader.readAll(tokens);
         if (read_amt != token_len) {
             return error.UnexpectedEof;
@@ -148,9 +195,9 @@ pub fn read_tokenizer() !*Tokenizer {
 
         try vocab.append(tokens);
         // try scores.append(score);
-        try tokenizer.tokens.append(try allocator.dupe(u8, tokens));
+        try tokenizer.tokens.append(try base_allocator.dupe(u8, tokens));
 
-        try tokenizer.back_map.put(try allocator.dupe(u8, tokens), .{
+        try tokenizer.back_map.put(try base_allocator.dupe(u8, tokens), .{
             .logit = score,
             .idx = @as(u32, @intCast(idx)),
         });
@@ -165,11 +212,11 @@ const Tensor = struct {
         Target,
     };
 
-    shape: []u32,
+    shape: []usize,
     N: usize,
     buffer: *gpu.Buffer,
 
-    pub fn init(allocator: std.mem.Allocator, shape: []u32, tensor_type: Type) !*Tensor {
+    pub fn init(allocator: std.mem.Allocator, shape: []usize, tensor_type: Type) !*Tensor {
         var tensor = try allocator.create(Tensor);
         _ = tensor_type;
 
@@ -193,7 +240,37 @@ const Tensor = struct {
         };
 
         var buffer_mapped = tensor.buffer.getMappedRange(f32, 0, N);
-        @memset(buffer_mapped.?, 0.12456);
+        @memset(buffer_mapped.?, 0.0);
+        tensor.buffer.unmap();
+
+        return tensor;
+    }
+
+    pub fn init_from_data(allocator: std.mem.Allocator, shape: []usize, tensor_type: Type, data: []f32) !*Tensor {
+        var tensor = try allocator.create(Tensor);
+        _ = tensor_type;
+
+        var N: usize = 1;
+        for (shape) |dim| {
+            N *= dim;
+        }
+        tensor.* = .{
+            .N = N,
+            .shape = shape,
+            .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "buffer",
+                .usage = .{
+                    .storage = true,
+                    .copy_dst = true,
+                    .copy_src = true,
+                },
+                .size = N * @sizeOf(f32),
+                .mapped_at_creation = .true,
+            }),
+        };
+
+        var buffer_mapped = tensor.buffer.getMappedRange(f32, 0, N);
+        std.mem.copy(f32, buffer_mapped.?, data);
         tensor.buffer.unmap();
 
         return tensor;
@@ -316,9 +393,9 @@ const AttentionOperator = struct {
         std.debug.assert(V.shape.len == 2);
 
         const params: Params = .{
-            .L = Q.shape[0],
-            .dim = Q.shape[1],
-            .n_heads = n_heads,
+            .L = @as(u32, @intCast(Q.shape[0])),
+            .dim = @as(u32, @intCast(Q.shape[1])),
+            .n_heads = @as(u32, @intCast(n_heads)),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -427,8 +504,8 @@ const RMSNormOperator = struct {
         std.debug.assert(x.shape.len == 2);
 
         const params: Params = .{
-            .L = x.shape[0],
-            .dim = x.shape[1],
+            .L = @as(u32, @intCast(x.shape[0])),
+            .dim = @as(u32, @intCast(x.shape[1])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -512,11 +589,11 @@ const AddOperator = struct {
     ) void {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
-        std.debug.assert(std.mem.eql(u32, left.shape, right.shape));
+        std.debug.assert(std.mem.eql(usize, left.shape, right.shape));
 
         const params: Params = .{
-            .L = left.shape[0],
-            .dim = left.shape[1],
+            .L = @as(u32, @intCast(left.shape[0])),
+            .dim = @as(u32, @intCast(left.shape[1])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -601,8 +678,8 @@ const SILUOperator = struct {
         std.debug.assert(x.shape.len == 2);
 
         const params: Params = .{
-            .L = x.shape[0],
-            .dim = x.shape[1],
+            .L = @as(u32, @intCast(x.shape[0])),
+            .dim = @as(u32, @intCast(x.shape[1])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -688,12 +765,12 @@ const RopeOperator = struct {
     ) void {
         std.debug.assert(k.shape.len == 2);
         std.debug.assert(v.shape.len == 2);
-        std.debug.assert(std.mem.eql(u32, k.shape, v.shape));
+        std.debug.assert(std.mem.eql(usize, k.shape, v.shape));
 
         const params: Params = .{
-            .L = k.shape[0],
-            .dim = k.shape[1],
-            .n_heads = n_heads,
+            .L = @as(u32, @intCast(k.shape[0])),
+            .dim = @as(u32, @intCast(k.shape[1])),
+            .n_heads = @as(u32, @intCast(n_heads)),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -783,9 +860,9 @@ const MatOperator = struct {
         std.debug.assert(output.shape.len == 2);
 
         const params: Params = .{
-            .N = left.shape[0],
-            .M = right.shape[1],
-            .K = left.shape[1],
+            .N = @as(u32, @intCast(left.shape[0])),
+            .M = @as(u32, @intCast(right.shape[1])),
+            .K = @as(u32, @intCast(left.shape[1])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -836,7 +913,7 @@ pub fn init(app: *App) !void {
     try core.init(.{});
     app.* = .{};
 
-    const tokenizer = try read_tokenizer();
+    const tokenizer = try read_tokenizer(allocator);
 
     const str = "Hello this is a test the monkey sat on a banana-pie, and he squished it. What a mess? for (int i = 0; i < 1204; i += 1) {dosomethign(); } tekening";
     const tokens = try tokenize(allocator, str, tokenizer);
@@ -861,22 +938,22 @@ pub fn init(app: *App) !void {
 
     const L = 2048;
     const dim = 512;
-    var x_shape = [_]u32{ L, dim };
+    var x_shape = [_]usize{ L, dim };
     var x = try Tensor.init(allocator, &x_shape, .Storage);
 
-    var k_shape = [_]u32{ L, dim };
+    var k_shape = [_]usize{ L, dim };
     var k = try Tensor.init(allocator, &k_shape, .Storage);
 
-    var v_shape = [_]u32{ L, dim };
+    var v_shape = [_]usize{ L, dim };
     var v = try Tensor.init(allocator, &v_shape, .Storage);
 
-    var l_shape = [_]u32{ dim, dim };
+    var l_shape = [_]usize{ dim, dim };
     var l = try Tensor.init(allocator, &l_shape, .Storage);
 
-    var o_shape = [_]u32{ L, dim };
+    var o_shape = [_]usize{ L, dim };
     var o = try Tensor.init(allocator, &o_shape, .Storage);
 
-    var slate_shape = [_]u32{ n_heads, L, L };
+    var slate_shape = [_]usize{ n_heads, L, L };
     var slate = try Tensor.init(allocator, &slate_shape, .Storage);
 
     std.log.info("mat", .{});
