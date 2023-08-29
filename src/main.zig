@@ -143,18 +143,157 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
 
     var weight_buffer = std.ArrayList(f32).init(arena_allocator);
     try weight_buffer.resize(@as(usize, @intCast(vocab_size * dim)));
+    _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
 
-    var size = [_]usize{ vocab_size, dim };
-    var vocab_tensor = try Tensor.init_from_data(
+    var token_embedding = try Tensor.init_from_data(
         base_allocator,
-        &size,
+        &[_]usize{ vocab_size, dim },
         .Storage,
         weight_buffer.items,
     );
-    _ = vocab_tensor;
-    _ = n_layers;
-    _ = hidden_dim;
+
+    const LayerWeights = struct {
+        rms_attention: *Tensor,
+        query_weight: *Tensor,
+        key_weight: *Tensor,
+        value_weight: *Tensor,
+        output_weight: *Tensor,
+        rms_ffn: *Tensor,
+        w1: *Tensor,
+        w2: *Tensor,
+        w3: *Tensor,
+    };
+
+    var layer_weights = std.ArrayList(LayerWeights).init(base_allocator);
+    try layer_weights.resize(n_layers);
+
+    // rms_attention
+    try weight_buffer.resize(dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.rms_attention = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{dim},
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    // query_weight
+    try weight_buffer.resize(dim * dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.query_weight = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    // key_weight
+    try weight_buffer.resize(dim * dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.key_weight = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    // value_weight
+    try weight_buffer.resize(dim * dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.value_weight = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    //output_weight
+    try weight_buffer.resize(dim * dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.output_weight = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    // rms_ffn
+    try weight_buffer.resize(dim * dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.rms_ffn = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    // w1
+    try weight_buffer.resize(dim * hidden_dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.w1 = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, hidden_dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    // w2
+    try weight_buffer.resize(hidden_dim * dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.w2 = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ hidden_dim, dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    // w3
+    try weight_buffer.resize(dim * hidden_dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+
+        layer.w3 = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, hidden_dim },
+            .Storage,
+            weight_buffer.items,
+        );
+    }
+
+    var final_rms_weight = try Tensor.init_from_data(
+        base_allocator,
+        &[_]usize{dim},
+        .Storage,
+        weight_buffer.items,
+    );
+
+    _ = token_embedding;
     _ = seq_len;
+    _ = final_rms_weight;
 
     // Read tokenizer
 
@@ -212,7 +351,7 @@ const Tensor = struct {
         Target,
     };
 
-    shape: []usize,
+    shape: []const usize,
     N: usize,
     buffer: *gpu.Buffer,
 
@@ -246,7 +385,7 @@ const Tensor = struct {
         return tensor;
     }
 
-    pub fn init_from_data(allocator: std.mem.Allocator, shape: []usize, tensor_type: Type, data: []f32) !*Tensor {
+    pub fn init_from_data(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []f32) !*Tensor {
         var tensor = try allocator.create(Tensor);
         _ = tensor_type;
 
