@@ -107,7 +107,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     var file = try std.fs.cwd().openFile(checkpoint_path, .{});
     defer file.close();
 
-    var model_file_buffered = std.io.bufferedReaderSize(64 << 20, file.reader());
+    var model_file_buffered = std.io.bufferedReader(file.reader());
     var model_reader = model_file_buffered.reader();
 
     // Read weights file
