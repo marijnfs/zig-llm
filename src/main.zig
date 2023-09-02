@@ -19,7 +19,7 @@ const buffer_size = 1000;
 //     seq_len: u32, // max sequence length
 // };
 
-const ConfigReader = extern struct {
+const ModelConfig = extern struct {
     dim: i32, // transformer dimension
     hidden_dim: i32, // for ffn layers
     n_layers: i32, // number of layers
@@ -37,6 +37,35 @@ const Tokenizer = struct {
 
     tokens: std.ArrayList([]const u8),
     back_map: std.StringHashMap(Token),
+};
+
+const LayerWeights = struct {
+    rms_attention: *Tensor,
+    query_weight: *Tensor,
+    key_weight: *Tensor,
+    value_weight: *Tensor,
+    output_weight: *Tensor,
+    rms_ffn: *Tensor,
+    w1: *Tensor,
+    w2: *Tensor,
+    w3: *Tensor,
+};
+
+const ModelWeights = struct {
+    config: ModelConfig,
+
+    layers: std.ArrayList(LayerWeights),
+
+    token_embedding: *Tensor,
+    final_rms_weight: *Tensor,
+    freq_real: *Tensor,
+    freq_img: *Tensor,
+    final_class_weights: ?*Tensor,
+
+    // - rms final weight = dim
+    // - freq real = seq_len * head_size / 2
+    // - freq img = seq_len * head_size / 2
+    //  - final class weights (if not shared with embedding) vocab * dim
 };
 
 pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Tokenizer) ![]u32 {
@@ -99,10 +128,38 @@ pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Toke
     return try allocator_.dupe(u32, tokens.items);
 }
 
-pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
+//Global
+// - token_embedding = vocab_size * dim
+
+//Layer:
+// - rms attention weight = layer * dim
+// - query weight = layer * dim * dim
+// - key weight = layer * dim * dim
+// - value weight = layer * dim * dim
+// - output weight = layer * dim * dim
+// - rms ffn weight = layer * dim * dim
+// - w1 weight = layer * dim * hidden_dim
+// - w2 weights = layer * hidden_dim * dim
+// - w3 weights = layer * dim * hidden_dim
+
+// final
+// - rms final weight = dim
+// - freq real = seq_len * head_size / 2
+// - freq img = seq_len * head_size / 2
+//  - final class weights (if not shared with embedding) vocab * dim
+
+pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
+    var model_weights = try base_allocator.create(ModelWeights);
+
+    // Setup arena
     var arena = std.heap.ArenaAllocator.init(base_allocator);
+    defer arena.deinit();
     const arena_allocator = arena.allocator();
 
+    // Read buffer
+    var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
+
+    // Open file
     const checkpoint_path = "/mnt/data/LLaMA/model44m.bin";
     var file = try std.fs.cwd().openFile(checkpoint_path, .{});
     defer file.close();
@@ -110,8 +167,8 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     var model_file_buffered = std.io.bufferedReader(file.reader());
     var model_reader = model_file_buffered.reader();
 
-    // Read weights file
-    var config = try model_reader.readStruct(ConfigReader);
+    // Read config file
+    var config = try model_reader.readStruct(ModelConfig);
 
     std.log.info("Config: {}", .{config});
 
@@ -119,188 +176,167 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
     const vocab_size = @as(usize, @intCast(config.vocab_size));
-    const seq_len = @as(usize, @intCast(config.seq_len));
 
-    //Global
-    // - token_embedding = vocab_size * dim
-
-    //Layer:
-    // - rms attention weight = layer * dim
-    // - query weight = layer * dim * dim
-    // - key weight = layer * dim * dim
-    // - value weight = layer * dim * dim
-    // - output weight = layer * dim * dim
-    // - rms ffn weight = layer * dim * dim
-    // - w1 weight = layer * dim * hidden_dim
-    // - w2 weights = layer * hidden_dim * dim
-    // - w3 weights = layer * dim * hidden_dim
-
-    // final
-    // - rms final weight = dim
-    // - freq real = seq_len * head_size / 2
-    // - freq img = seq_len * head_size / 2
-    //  - final class weights (if not shared with embedding) vocab * dim
-
-    var weight_buffer = std.ArrayList(f32).init(arena_allocator);
-    try weight_buffer.resize(@as(usize, @intCast(vocab_size * dim)));
-    const read = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+    // Read token embedding
+    try weight_read_buffer.resize(@as(usize, @intCast(vocab_size * dim)));
+    const read = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
     std.log.info("read: {}", .{read});
 
     var token_embedding = try Tensor.init_from_data(
         base_allocator,
         &[_]usize{ vocab_size, dim },
         .Storage,
-        weight_buffer.items,
+        weight_read_buffer.items,
     );
 
-    const LayerWeights = struct {
-        rms_attention: *Tensor,
-        query_weight: *Tensor,
-        key_weight: *Tensor,
-        value_weight: *Tensor,
-        output_weight: *Tensor,
-        rms_ffn: *Tensor,
-        w1: *Tensor,
-        w2: *Tensor,
-        w3: *Tensor,
-    };
+    // Start reading weights
 
     var layer_weights = std.ArrayList(LayerWeights).init(base_allocator);
     try layer_weights.resize(n_layers);
 
     // rms_attention
-    try weight_buffer.resize(dim);
+    try weight_read_buffer.resize(dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.rms_attention = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{dim},
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     // query_weight
-    try weight_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.query_weight = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ dim, dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     // key_weight
-    try weight_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.key_weight = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ dim, dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     // value_weight
-    try weight_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.value_weight = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ dim, dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     //output_weight
-    try weight_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.output_weight = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ dim, dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     // rms_ffn
-    try weight_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.rms_ffn = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ dim, dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     // w1
-    try weight_buffer.resize(dim * hidden_dim);
+    try weight_read_buffer.resize(dim * hidden_dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.w1 = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ dim, hidden_dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     // w2
-    try weight_buffer.resize(hidden_dim * dim);
+    try weight_read_buffer.resize(hidden_dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.w2 = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ hidden_dim, dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
     // w3
-    try weight_buffer.resize(dim * hidden_dim);
+    try weight_read_buffer.resize(dim * hidden_dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.w3 = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ dim, hidden_dim },
             .Storage,
-            weight_buffer.items,
+            weight_read_buffer.items,
         );
     }
 
-    try weight_buffer.resize(dim);
-    _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+    try weight_read_buffer.resize(dim);
+    _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
     var final_rms_weight = try Tensor.init_from_data(
         base_allocator,
         &[_]usize{dim},
         .Storage,
-        weight_buffer.items,
+        weight_read_buffer.items,
     );
 
-    _ = token_embedding;
-    _ = seq_len;
-    _ = final_rms_weight;
+    model_weights.* = .{
+        .config = config,
+        .layers = layer_weights,
+        .token_embedding = token_embedding,
+        .final_rms_weight = final_rms_weight,
+        .freq_real = undefined,
+        .freq_img = undefined,
+        .final_class_weights = null,
+    };
+
+    return model_weights;
+}
+
+pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize) !*Tokenizer {
 
     // Read tokenizer
-
     var token_file = try std.fs.cwd().openFile("/mnt/data/LLaMA/tokenizer.bin", .{});
 
     // var token_file = try std.fs.cwd().openFile("/mnt/xfs/LLaMA/tokenizer.bin", .{});
@@ -319,7 +355,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
         .back_map = std.StringHashMap(Tokenizer.Token).init(base_allocator),
     };
 
-    for (0..@as(usize, @intCast(config.vocab_size))) |idx| {
+    for (0..vocab_size) |idx| {
         var score: f32 = 0;
         _ = try token_reader.readAll(std.mem.asBytes(&score));
         // const score: f32 = @bitCast(try token_reader.readInt(u32, std.builtin.Endian.Little)); //strange
@@ -1051,7 +1087,9 @@ pub fn init(app: *App) !void {
     try core.init(.{});
     app.* = .{};
 
-    const tokenizer = try read_tokenizer(allocator);
+    const model_weights = try read_model_weights(allocator);
+
+    const tokenizer = try read_tokenizer(allocator, @as(usize, @intCast(model_weights.config.vocab_size)));
 
     const str = "Hello this is a test the monkey sat on a banana-pie, and he squished it. What a mess? for (int i = 0; i < 1204; i += 1) {dosomethign(); } tekening";
     const tokens = try tokenize(allocator, str, tokenizer);
