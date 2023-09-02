@@ -113,7 +113,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // Read weights file
     var config = try model_reader.readStruct(ConfigReader);
 
-    std.log.info("{}", .{config});
+    std.log.info("Config: {}", .{config});
 
     const n_layers = @as(usize, @intCast(config.n_layers));
     const dim = @as(usize, @intCast(config.dim));
@@ -143,7 +143,8 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
 
     var weight_buffer = std.ArrayList(f32).init(arena_allocator);
     try weight_buffer.resize(@as(usize, @intCast(vocab_size * dim)));
-    _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+    const read = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
+    std.log.info("read: {}", .{read});
 
     var token_embedding = try Tensor.init_from_data(
         base_allocator,
@@ -170,7 +171,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // rms_attention
     try weight_buffer.resize(dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.rms_attention = try Tensor.init_from_data(
             base_allocator,
@@ -183,7 +184,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // query_weight
     try weight_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.query_weight = try Tensor.init_from_data(
             base_allocator,
@@ -196,7 +197,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // key_weight
     try weight_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.key_weight = try Tensor.init_from_data(
             base_allocator,
@@ -209,7 +210,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // value_weight
     try weight_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.value_weight = try Tensor.init_from_data(
             base_allocator,
@@ -222,7 +223,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     //output_weight
     try weight_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.output_weight = try Tensor.init_from_data(
             base_allocator,
@@ -235,7 +236,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // rms_ffn
     try weight_buffer.resize(dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.rms_ffn = try Tensor.init_from_data(
             base_allocator,
@@ -248,7 +249,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // w1
     try weight_buffer.resize(dim * hidden_dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.w1 = try Tensor.init_from_data(
             base_allocator,
@@ -261,7 +262,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // w2
     try weight_buffer.resize(hidden_dim * dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.w2 = try Tensor.init_from_data(
             base_allocator,
@@ -274,7 +275,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     // w3
     try weight_buffer.resize(dim * hidden_dim);
     for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.asBytes(&weight_buffer.items));
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
         layer.w3 = try Tensor.init_from_data(
             base_allocator,
@@ -283,6 +284,9 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
             weight_buffer.items,
         );
     }
+
+    try weight_buffer.resize(dim);
+    _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
     var final_rms_weight = try Tensor.init_from_data(
         base_allocator,
@@ -307,12 +311,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator) !*Tokenizer {
     var max_token_length = try token_reader.readInt(u32, std.builtin.Endian.Little);
     std.log.info("Max token len: {}", .{max_token_length});
 
-    // if ((try token_file.read(std.mem.asBytes(&max_token_length))) != 4)
-    //     return error.InvalidTokenizerFile;
-
     var vocab = std.ArrayList([]const u8).init(base_allocator);
-
-    // var scores = std.ArrayList(f32).init(allocator);
 
     var tokenizer = try base_allocator.create(Tokenizer);
     tokenizer.* = .{
