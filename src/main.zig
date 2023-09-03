@@ -158,7 +158,6 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
 
     // Read buffer
     var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
-    defer weight_read_buffer.deinit();
 
     // Open file
     const checkpoint_path = "/mnt/data/LLaMA/model44m.bin";
@@ -396,7 +395,7 @@ const Tensor = struct {
         }
         tensor.* = .{
             .N = N,
-            .shape = shape,
+            .shape = try allocator.dupe(usize, shape),
             .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
                 .label = "buffer",
                 .usage = .{
@@ -426,7 +425,7 @@ const Tensor = struct {
         }
         tensor.* = .{
             .N = N,
-            .shape = shape,
+            .shape = try allocator.dupe(usize, shape),
             .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
                 .label = "buffer",
                 .usage = .{
