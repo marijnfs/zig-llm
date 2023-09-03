@@ -541,7 +541,7 @@ const Tensor = struct {
         std.debug.print("\n", .{});
     }
 
-    fn read_data_u32(self: *Tensor) void {
+    fn read_data_u32(self: *Tensor, tokenizer: *Tokenizer) void {
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
 
@@ -576,10 +576,13 @@ const Tensor = struct {
         const output_mapped = output_buffer.getConstMappedRange(u32, 0, self.N);
         defer output_buffer.unmap();
         for (output_mapped.?) |v| {
-            std.debug.print("{d} ", .{v});
+            if (v == 0)
+                continue;
+            std.debug.print("{d} {s}\n", .{ v, tokenizer.tokens.items[v] });
         }
         std.debug.print("\n", .{});
     }
+
     fn create_matching_output_buffer(self: *Tensor) *gpu.Buffer {
         const output_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
             .label = "output_buffer",
@@ -1537,9 +1540,9 @@ pub fn init(app: *App) !void {
 
     var max_index = try Tensor.init_u32(allocator, &[_]usize{L}, .Storage);
 
-    var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
-    embed_operator.execute(model_weights.token_embedding, tokens_tensor, L, x);
-    // x.read_data();
+    // var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
+    // embed_operator.execute(model_weights.token_embedding, tokens_tensor, L, x);
+    _ = embed_operator;
 
     for (model_weights.layers.items) |*layer| {
         x.copy_to(x_copy);
@@ -1568,7 +1571,7 @@ pub fn init(app: *App) !void {
     mat_operator.execute(final_weights, x, logits);
 
     argmax_operator.execute(logits, max_index);
-    max_index.read_data_u32();
+    max_index.read_data_u32(tokenizer);
 }
 
 pub fn deinit(app: *App) void {
