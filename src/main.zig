@@ -390,7 +390,7 @@ const Tensor = struct {
     N: usize,
     buffer: *gpu.Buffer,
 
-    pub fn init(allocator: std.mem.Allocator, shape: []usize, tensor_type: Type) !*Tensor {
+    pub fn init(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type) !*Tensor {
         var tensor = try allocator.create(Tensor);
         _ = tensor_type;
 
@@ -498,6 +498,18 @@ const Tensor = struct {
         });
         return output_buffer;
     }
+
+    fn copy_to(self: *Tensor, to: *Tensor) void {
+        std.debug.assert(self.N == to.N);
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+
+        command_encoder.copyBufferToBuffer(self.buffer, 0, to.buffer, 0, self.N * @sizeOf(f32));
+
+        var command = command_encoder.finish(null);
+        defer command.release();
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
 };
 
 const AttentionOperator = struct {
@@ -560,7 +572,7 @@ const AttentionOperator = struct {
         V: *Tensor,
         slate: *Tensor,
         output: *Tensor,
-        n_heads: u32,
+        n_heads: usize,
     ) void {
         std.debug.assert(Q.shape.len == 2);
         std.debug.assert(K.shape.len == 2);
@@ -811,6 +823,95 @@ const AddOperator = struct {
     }
 };
 
+const ElMulOperator = struct {
+    shader_module: *gpu.ShaderModule,
+    pipeline: *gpu.ComputePipeline,
+    param_buffer: *gpu.Buffer,
+
+    const Params = struct {
+        dim: u32,
+        L: u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) !*ElMulOperator {
+        var operator = try allocator.create(ElMulOperator);
+        const shader_module = core.device.createShaderModuleWGSL(
+            "elmul_inplace.wgsl",
+            @embedFile("elmul_inplace.wgsl"),
+        );
+        const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
+            .module = shader_module,
+            .entry_point = "main",
+        } });
+
+        operator.* = .{
+            .shader_module = shader_module,
+            .pipeline = pipeline,
+
+            .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "param_buffer",
+                .usage = .{ .uniform = true, .copy_dst = true },
+                .size = @sizeOf(Params),
+            }),
+        };
+        return operator;
+    }
+
+    pub fn execute(
+        self: *ElMulOperator,
+        left: *Tensor,
+        right: *Tensor,
+    ) void {
+        std.debug.assert(left.shape.len == 2);
+        std.debug.assert(right.shape.len == 2);
+        std.debug.assert(std.mem.eql(usize, left.shape, right.shape));
+
+        const params: Params = .{
+            .L = @as(u32, @intCast(left.shape[0])),
+            .dim = @as(u32, @intCast(left.shape[1])),
+        };
+
+        core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
+
+        const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline.getBindGroupLayout(0),
+            .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+            },
+        }));
+        defer bindings.release();
+
+        const DispatchGroups = struct {
+            X: u32,
+            Y: u32,
+            Z: u32,
+        };
+        const dispatch_groups = DispatchGroups{
+            .X = params.L,
+            .Y = params.dim,
+            .Z = 1,
+        };
+
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+        {
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline);
+            pass_encoder.setBindGroup(0, bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
+};
+
 const SILUOperator = struct {
     shader_module: *gpu.ShaderModule,
     pipeline: *gpu.ComputePipeline,
@@ -934,12 +1035,12 @@ const RopeOperator = struct {
     pub fn execute(
         self: *RopeOperator,
         k: *Tensor,
-        v: *Tensor,
-        n_heads: u32,
+        q: *Tensor,
+        n_heads: usize,
     ) void {
         std.debug.assert(k.shape.len == 2);
-        std.debug.assert(v.shape.len == 2);
-        std.debug.assert(std.mem.eql(usize, k.shape, v.shape));
+        std.debug.assert(q.shape.len == 2);
+        std.debug.assert(std.mem.eql(usize, k.shape, q.shape));
 
         const params: Params = .{
             .L = @as(u32, @intCast(k.shape[0])),
@@ -953,7 +1054,7 @@ const RopeOperator = struct {
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, k.buffer, 0, k.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(1, v.buffer, 0, v.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, q.buffer, 0, q.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -1088,8 +1189,11 @@ pub fn init(app: *App) !void {
     app.* = .{};
 
     const model_weights = try read_model_weights(allocator);
+    const config = model_weights.config;
 
-    const tokenizer = try read_tokenizer(allocator, @as(usize, @intCast(model_weights.config.vocab_size)));
+    const vocab_size = @as(usize, @intCast(config.vocab_size));
+
+    const tokenizer = try read_tokenizer(allocator, vocab_size);
 
     const str = "Hello this is a test the monkey sat on a banana-pie, and he squished it. What a mess? for (int i = 0; i < 1204; i += 1) {dosomethign(); } tekening";
     const tokens = try tokenize(allocator, str, tokenizer);
@@ -1102,6 +1206,8 @@ pub fn init(app: *App) !void {
 
     const rope_operator = try RopeOperator.init(allocator);
 
+    const elmul_operator = try ElMulOperator.init(allocator);
+
     const add_operator = try AddOperator.init(allocator);
 
     const attention_operator = try AttentionOperator.init(allocator);
@@ -1110,48 +1216,69 @@ pub fn init(app: *App) !void {
 
     const silu_operator = try SILUOperator.init(allocator);
 
-    const n_heads = 4;
+    const n_heads = @as(usize, @intCast(config.n_heads));
+
+    // Steps:
+    // -> RMS norm x, with weights
+    // -> matmul x to q, k, v
+    // -> rope q and k (some versions only rope one)
+    // -> attention
+    // -> matmul attention output with out weights
+    // -> add x (before rms norm)
+    // -> rms norm, with weights again -> output
+    // -> matmul output with w1, silu output
+    // -> matmul output with w3 (bad naming)
+    // -> elmul both outputs
+    // -> matmul with w2
+    // -> add x again
+
+    // -> final steps
+    // -> rmsnorm with weights again
+    // -> matmul with class weights toward vocab size
 
     const L = 2048;
-    const dim = 512;
-    var x_shape = [_]usize{ L, dim };
-    var x = try Tensor.init(allocator, &x_shape, .Storage);
+    const dim = @as(usize, @intCast(config.dim));
+    const hidden_dim = @as(usize, @intCast(config.hidden_dim));
+    var x = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
+    var x_copy = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
 
-    var k_shape = [_]usize{ L, dim };
-    var k = try Tensor.init(allocator, &k_shape, .Storage);
+    var k = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
+    var q = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
+    var v = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
 
-    var v_shape = [_]usize{ L, dim };
-    var v = try Tensor.init(allocator, &v_shape, .Storage);
+    var out = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
 
-    var l_shape = [_]usize{ dim, dim };
-    var l = try Tensor.init(allocator, &l_shape, .Storage);
+    var w1_slate = try Tensor.init(allocator, &[_]usize{ L, hidden_dim }, .Storage);
+    var w3_slate = try Tensor.init(allocator, &[_]usize{ L, hidden_dim }, .Storage);
 
-    var o_shape = [_]usize{ L, dim };
-    var o = try Tensor.init(allocator, &o_shape, .Storage);
+    var logits = try Tensor.init(allocator, &[_]usize{ L, vocab_size }, .Storage);
+    var slate = try Tensor.init(allocator, &[_]usize{ n_heads, L, L }, .Storage);
 
-    var slate_shape = [_]usize{ n_heads, L, L };
-    var slate = try Tensor.init(allocator, &slate_shape, .Storage);
+    for (model_weights.layers.items) |*layer| {
+        x.copy_to(x_copy);
+        rmsnorm_operator.execute(x);
+        mat_operator.execute(layer.query_weight, x, q);
+        mat_operator.execute(layer.key_weight, x, k);
+        mat_operator.execute(layer.value_weight, x, v);
 
-    std.log.info("mat", .{});
-    mat_operator.execute(l, x, o);
+        rope_operator.execute(k, q, n_heads);
 
-    std.log.info("add", .{});
-    add_operator.execute(x, o);
+        attention_operator.execute(q, k, v, slate, out, n_heads);
+        add_operator.execute(out, x_copy);
+        rmsnorm_operator.execute(out);
 
-    std.log.info("rms", .{});
+        mat_operator.execute(layer.w1, out, w1_slate);
+        mat_operator.execute(layer.w3, out, w3_slate);
+        silu_operator.execute(w1_slate);
+
+        elmul_operator.execute(w1_slate, w3_slate);
+        mat_operator.execute(layer.w2, w1_slate, x);
+        add_operator.execute(x, x_copy);
+    }
+
     rmsnorm_operator.execute(x);
-
-    std.log.info("rope", .{});
-    rope_operator.execute(x, k, n_heads);
-
-    silu_operator.execute(x);
-    // _ = v;
-    // _ = slate;
-    // _ = attention_operator;
-    std.log.info("attention", .{});
-    attention_operator.execute(x, k, v, slate, o, n_heads);
-
-    o.read_data();
+    const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
+    mat_operator.execute(final_weights, x, logits);
 }
 
 pub fn deinit(app: *App) void {
