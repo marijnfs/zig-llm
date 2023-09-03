@@ -158,6 +158,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
 
     // Read buffer
     var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
+    defer weight_read_buffer.deinit();
 
     // Open file
     const checkpoint_path = "/mnt/data/LLaMA/model44m.bin";
@@ -178,7 +179,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
     const vocab_size = @as(usize, @intCast(config.vocab_size));
 
     // Read token embedding
-    try weight_read_buffer.resize(@as(usize, @intCast(vocab_size * dim)));
+    try weight_read_buffer.resize(vocab_size * dim);
     const read = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
     std.log.info("read: {}", .{read});
 
@@ -190,7 +191,6 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
     );
 
     // Start reading weights
-
     var layer_weights = std.ArrayList(LayerWeights).init(base_allocator);
     try layer_weights.resize(n_layers);
 
@@ -335,7 +335,6 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
 }
 
 pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize) !*Tokenizer {
-
     // Read tokenizer
     var token_file = try std.fs.cwd().openFile("/mnt/data/LLaMA/tokenizer.bin", .{});
 
@@ -346,8 +345,6 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize) !*To
 
     var max_token_length = try token_reader.readInt(u32, std.builtin.Endian.Little);
     std.log.info("Max token len: {}", .{max_token_length});
-
-    var vocab = std.ArrayList([]const u8).init(base_allocator);
 
     var tokenizer = try base_allocator.create(Tokenizer);
     tokenizer.* = .{
@@ -362,13 +359,12 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize) !*To
         const token_len = try token_reader.readInt(u32, std.builtin.Endian.Little);
 
         var tokens = try base_allocator.alloc(u8, token_len);
+        defer base_allocator.free(tokens);
         const read_amt = try token_reader.readAll(tokens);
         if (read_amt != token_len) {
             return error.UnexpectedEof;
         }
 
-        try vocab.append(tokens);
-        // try scores.append(score);
         try tokenizer.tokens.append(try base_allocator.dupe(u8, tokens));
 
         try tokenizer.back_map.put(try base_allocator.dupe(u8, tokens), .{
