@@ -415,6 +415,36 @@ const Tensor = struct {
         return tensor;
     }
 
+    pub fn init_u32(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type) !*Tensor {
+        var tensor = try allocator.create(Tensor);
+        _ = tensor_type;
+
+        var N: usize = 1;
+        for (shape) |dim| {
+            N *= dim;
+        }
+        tensor.* = .{
+            .N = N,
+            .shape = try allocator.dupe(usize, shape),
+            .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "buffer",
+                .usage = .{
+                    .storage = true,
+                    .copy_dst = true,
+                    .copy_src = true,
+                },
+                .size = N * @sizeOf(u32),
+                .mapped_at_creation = .true,
+            }),
+        };
+
+        var buffer_mapped = tensor.buffer.getMappedRange(u32, 0, N);
+        @memset(buffer_mapped.?, 0.0);
+        tensor.buffer.unmap();
+
+        return tensor;
+    }
+
     pub fn init_from_data(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []f32) !*Tensor {
         var tensor = try allocator.create(Tensor);
         _ = tensor_type;
@@ -440,6 +470,32 @@ const Tensor = struct {
 
         var buffer_mapped = tensor.buffer.getMappedRange(f32, 0, N);
         std.mem.copy(f32, buffer_mapped.?, data);
+        tensor.buffer.unmap();
+
+        return tensor;
+    }
+
+    pub fn init_from_tokens(allocator: std.mem.Allocator, data: []u32) !*Tensor {
+        var tensor = try allocator.create(Tensor);
+
+        var N: usize = data.len;
+        tensor.* = .{
+            .N = N,
+            .shape = try allocator.dupe(usize, &[_]usize{N}),
+            .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "buffer",
+                .usage = .{
+                    .storage = true,
+                    .copy_dst = true,
+                    .copy_src = true,
+                },
+                .size = N * @sizeOf(u32),
+                .mapped_at_creation = .true,
+            }),
+        };
+
+        var buffer_mapped = tensor.buffer.getMappedRange(u32, 0, N);
+        std.mem.copy(u32, buffer_mapped.?, data);
         tensor.buffer.unmap();
 
         return tensor;
@@ -485,6 +541,45 @@ const Tensor = struct {
         std.debug.print("\n", .{});
     }
 
+    fn read_data_u32(self: *Tensor) void {
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+
+        const output_buffer = self.create_matching_output_buffer();
+        defer output_buffer.release();
+
+        command_encoder.copyBufferToBuffer(self.buffer, 0, output_buffer, 0, self.N * @sizeOf(u32));
+
+        // Setup response callback
+        var response: gpu.Buffer.MapAsyncStatus = undefined;
+        const callback = (struct {
+            pub inline fn callback(ctx: *gpu.Buffer.MapAsyncStatus, status: gpu.Buffer.MapAsyncStatus) void {
+                ctx.* = status;
+            }
+        }).callback;
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+
+        // Copy result
+        output_buffer.mapAsync(.{ .read = true }, 0, self.N * @sizeOf(u32), &response, callback);
+        while (true) {
+            if (response == gpu.Buffer.MapAsyncStatus.success) {
+                break;
+            } else {
+                core.device.tick();
+            }
+        }
+
+        const output_mapped = output_buffer.getConstMappedRange(u32, 0, self.N);
+        defer output_buffer.unmap();
+        for (output_mapped.?) |v| {
+            std.debug.print("{d} ", .{v});
+        }
+        std.debug.print("\n", .{});
+    }
     fn create_matching_output_buffer(self: *Tensor) *gpu.Buffer {
         const output_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
             .label = "output_buffer",
@@ -785,6 +880,181 @@ const AddOperator = struct {
                 gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+            },
+        }));
+        defer bindings.release();
+
+        const DispatchGroups = struct {
+            X: u32,
+            Y: u32,
+            Z: u32,
+        };
+        const dispatch_groups = DispatchGroups{
+            .X = params.L,
+            .Y = params.dim,
+            .Z = 1,
+        };
+
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+        {
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline);
+            pass_encoder.setBindGroup(0, bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
+};
+
+const ArgmaxOperator = struct {
+    shader_module: *gpu.ShaderModule,
+    pipeline: *gpu.ComputePipeline,
+    param_buffer: *gpu.Buffer,
+
+    const Params = struct {
+        dim: u32,
+        L: u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) !*ArgmaxOperator {
+        var operator = try allocator.create(ArgmaxOperator);
+        const shader_module = core.device.createShaderModuleWGSL(
+            "argmax.wgsl",
+            @embedFile("argmax.wgsl"),
+        );
+        const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
+            .module = shader_module,
+            .entry_point = "main",
+        } });
+
+        operator.* = .{
+            .shader_module = shader_module,
+            .pipeline = pipeline,
+
+            .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "param_buffer",
+                .usage = .{ .uniform = true, .copy_dst = true },
+                .size = @sizeOf(Params),
+            }),
+        };
+        return operator;
+    }
+
+    pub fn execute(
+        self: *ArgmaxOperator,
+        values: *Tensor,
+        max_index: *Tensor,
+    ) void {
+        const params: Params = .{
+            .L = @as(u32, @intCast(values.shape[0])),
+            .dim = @as(u32, @intCast(values.shape[1])),
+        };
+
+        core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
+
+        const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline.getBindGroupLayout(0),
+            .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, values.buffer, 0, values.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, max_index.buffer, 0, max_index.N * @sizeOf(u32)),
+                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+            },
+        }));
+        defer bindings.release();
+
+        const DispatchGroups = struct {
+            X: u32,
+            Y: u32,
+            Z: u32,
+        };
+        const dispatch_groups = DispatchGroups{
+            .X = params.L,
+            .Y = 1,
+            .Z = 1,
+        };
+
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+        {
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline);
+            pass_encoder.setBindGroup(0, bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
+};
+
+const EmbedOperator = struct {
+    shader_module: *gpu.ShaderModule,
+    pipeline: *gpu.ComputePipeline,
+    param_buffer: *gpu.Buffer,
+
+    const Params = struct {
+        dim: u32,
+        L: u32,
+        n_tokens: u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) !*EmbedOperator {
+        var operator = try allocator.create(EmbedOperator);
+        const shader_module = core.device.createShaderModuleWGSL(
+            "embed_token.wgsl",
+            @embedFile("embed_token.wgsl"),
+        );
+        const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
+            .module = shader_module,
+            .entry_point = "main",
+        } });
+
+        operator.* = .{
+            .shader_module = shader_module,
+            .pipeline = pipeline,
+
+            .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "param_buffer",
+                .usage = .{ .uniform = true, .copy_dst = true },
+                .size = @sizeOf(Params),
+            }),
+        };
+        return operator;
+    }
+
+    pub fn execute(
+        self: *EmbedOperator,
+        embeddings: *Tensor,
+        tokens: *Tensor,
+        seq_len: usize,
+        x: *Tensor,
+    ) void {
+        const params: Params = .{
+            .L = @as(u32, @intCast(seq_len)),
+            .dim = @as(u32, @intCast(embeddings.shape[1])),
+            .n_tokens = @as(u32, @intCast(tokens.N)),
+        };
+
+        core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
+
+        const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline.getBindGroupLayout(0),
+            .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, embeddings.buffer, 0, embeddings.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, tokens.buffer, 0, tokens.N * @sizeOf(u32)),
+                gpu.BindGroup.Entry.buffer(2, x.buffer, 0, x.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
         defer bindings.release();
@@ -1183,6 +1453,10 @@ pub fn init(app: *App) !void {
     try core.init(.{});
     app.* = .{};
 
+    const seed: u64 = 123;
+    var prng = std.rand.DefaultPrng.init(seed);
+    const random = prng.random();
+
     const model_weights = try read_model_weights(allocator);
     const config = model_weights.config;
 
@@ -1211,6 +1485,10 @@ pub fn init(app: *App) !void {
 
     const silu_operator = try SILUOperator.init(allocator);
 
+    const embed_operator = try EmbedOperator.init(allocator);
+
+    const argmax_operator = try ArgmaxOperator.init(allocator);
+
     const n_heads = @as(usize, @intCast(config.n_heads));
 
     // Steps:
@@ -1231,10 +1509,18 @@ pub fn init(app: *App) !void {
     // -> rmsnorm with weights again
     // -> matmul with class weights toward vocab size
 
-    const L = 2048;
+    const L = 512;
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
-    var x = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
+
+    var random_values = try allocator.alloc(f32, L * dim);
+    defer allocator.free(random_values);
+
+    for (random_values) |*v| {
+        v.* = (random.float(f32) * 2 - 1) * 0.05;
+    }
+
+    var x = try Tensor.init_from_data(allocator, &[_]usize{ L, dim }, .Storage, random_values);
     var x_copy = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
 
     var k = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
@@ -1248,6 +1534,12 @@ pub fn init(app: *App) !void {
 
     var logits = try Tensor.init(allocator, &[_]usize{ L, vocab_size }, .Storage);
     var slate = try Tensor.init(allocator, &[_]usize{ n_heads, L, L }, .Storage);
+
+    var max_index = try Tensor.init_u32(allocator, &[_]usize{L}, .Storage);
+
+    var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
+    embed_operator.execute(model_weights.token_embedding, tokens_tensor, L, x);
+    // x.read_data();
 
     for (model_weights.layers.items) |*layer| {
         x.copy_to(x_copy);
@@ -1274,6 +1566,9 @@ pub fn init(app: *App) !void {
     rmsnorm_operator.execute(x);
     const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
     mat_operator.execute(final_weights, x, logits);
+
+    argmax_operator.execute(logits, max_index);
+    max_index.read_data_u32();
 }
 
 pub fn deinit(app: *App) void {
