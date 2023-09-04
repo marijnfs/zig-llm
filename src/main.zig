@@ -148,7 +148,7 @@ pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Toke
 // - freq img = seq_len * head_size / 2
 //  - final class weights (if not shared with embedding) vocab * dim
 
-pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
+pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !*ModelWeights {
     var model_weights = try base_allocator.create(ModelWeights);
 
     // Setup arena
@@ -160,7 +160,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
     var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
 
     // Open file
-    const checkpoint_path = "/mnt/data/LLaMA/model44m.bin";
+    const checkpoint_path = path;
     var file = try std.fs.cwd().openFile(checkpoint_path, .{});
     defer file.close();
 
@@ -333,11 +333,9 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator) !*ModelWeights {
     return model_weights;
 }
 
-pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize) !*Tokenizer {
+pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize, path: []const u8) !*Tokenizer {
     // Read tokenizer
-    var token_file = try std.fs.cwd().openFile("/mnt/data/LLaMA/tokenizer.bin", .{});
-
-    // var token_file = try std.fs.cwd().openFile("/mnt/xfs/LLaMA/tokenizer.bin", .{});
+    var token_file = try std.fs.cwd().openFile(path, .{});
     defer token_file.close();
 
     var token_reader = token_file.reader();
@@ -363,6 +361,8 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize) !*To
         if (read_amt != token_len) {
             return error.UnexpectedEof;
         }
+
+        std.log.info("{} {s}, len: {}", .{ idx, tokens, token_len });
 
         try tokenizer.tokens.append(try base_allocator.dupe(u8, tokens));
 
@@ -1460,12 +1460,15 @@ pub fn init(app: *App) !void {
     var prng = std.rand.DefaultPrng.init(seed);
     const random = prng.random();
 
-    const model_weights = try read_model_weights(allocator);
+    const tokenizer_path = "/home/marijnfs/Downloads/tokenizer.bin";
+    const model_path = "/home/marijnfs/Downloads/stories15M.bin";
+
+    const model_weights = try read_model_weights(allocator, model_path);
     const config = model_weights.config;
 
     const vocab_size = @as(usize, @intCast(config.vocab_size));
 
-    const tokenizer = try read_tokenizer(allocator, vocab_size);
+    const tokenizer = try read_tokenizer(allocator, vocab_size, tokenizer_path);
 
     const str = "Hello this is a test the monkey sat on a banana-pie, and he squished it. What a mess? for (int i = 0; i < 1204; i += 1) {dosomethign(); } tekening";
     const tokens = try tokenize(allocator, str, tokenizer);

@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) !void {
 
     mach_core.mach_glfw_import_path = "mach_core.mach_glfw";
     const app = try mach_core.App.init(b, .{
-        .name = "myapp",
+        .name = "llm",
         .src = "src/main.zig",
         .target = target,
         .optimize = optimize,
