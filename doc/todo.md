@@ -1,0 +1,3 @@
+- move to dim first in shape
+- matrix col first as a result (typically L over row dimension, dim over col due to mat mul)
+- check shape sizes, fix shapes in reading
