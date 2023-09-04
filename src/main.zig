@@ -436,8 +436,8 @@ const AttentionOperator = struct {
         std.debug.assert(V.shape.len == 2);
 
         const params: Params = .{
-            .L = @as(u32, @intCast(Q.shape[0])),
-            .dim = @as(u32, @intCast(Q.shape[1])),
+            .L = @as(u32, @intCast(Q.shape[1])),
+            .dim = @as(u32, @intCast(Q.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
         };
 
@@ -547,8 +547,8 @@ const RMSNormOperator = struct {
         std.debug.assert(x.shape.len == 2);
 
         const params: Params = .{
-            .L = @as(u32, @intCast(x.shape[0])),
-            .dim = @as(u32, @intCast(x.shape[1])),
+            .L = @as(u32, @intCast(x.shape[1])),
+            .dim = @as(u32, @intCast(x.shape[0])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -635,8 +635,8 @@ const AddOperator = struct {
         std.debug.assert(std.mem.eql(usize, left.shape, right.shape));
 
         const params: Params = .{
-            .L = @as(u32, @intCast(left.shape[0])),
-            .dim = @as(u32, @intCast(left.shape[1])),
+            .L = @as(u32, @intCast(left.shape[1])),
+            .dim = @as(u32, @intCast(left.shape[0])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -720,8 +720,8 @@ const ArgmaxOperator = struct {
         max_index: *Tensor,
     ) void {
         const params: Params = .{
-            .L = @as(u32, @intCast(values.shape[0])),
-            .dim = @as(u32, @intCast(values.shape[1])),
+            .L = @as(u32, @intCast(values.shape[1])),
+            .dim = @as(u32, @intCast(values.shape[0])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -809,7 +809,7 @@ const EmbedOperator = struct {
     ) void {
         const params: Params = .{
             .L = @as(u32, @intCast(seq_len)),
-            .dim = @as(u32, @intCast(embeddings.shape[1])),
+            .dim = @as(u32, @intCast(embeddings.shape[0])),
             .n_tokens = @as(u32, @intCast(tokens.N)),
         };
 
@@ -899,8 +899,8 @@ const ElMulOperator = struct {
         std.debug.assert(std.mem.eql(usize, left.shape, right.shape));
 
         const params: Params = .{
-            .L = @as(u32, @intCast(left.shape[0])),
-            .dim = @as(u32, @intCast(left.shape[1])),
+            .L = @as(u32, @intCast(left.shape[1])),
+            .dim = @as(u32, @intCast(left.shape[0])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -985,8 +985,8 @@ const SILUOperator = struct {
         std.debug.assert(x.shape.len == 2);
 
         const params: Params = .{
-            .L = @as(u32, @intCast(x.shape[0])),
-            .dim = @as(u32, @intCast(x.shape[1])),
+            .L = @as(u32, @intCast(x.shape[1])),
+            .dim = @as(u32, @intCast(x.shape[0])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -1075,8 +1075,8 @@ const RopeOperator = struct {
         std.debug.assert(std.mem.eql(usize, k.shape, q.shape));
 
         const params: Params = .{
-            .L = @as(u32, @intCast(k.shape[0])),
-            .dim = @as(u32, @intCast(k.shape[1])),
+            .L = @as(u32, @intCast(k.shape[1])),
+            .dim = @as(u32, @intCast(k.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
         };
 
@@ -1166,14 +1166,14 @@ const MatOperator = struct {
         std.debug.assert(right.shape.len == 2);
         std.debug.assert(output.shape.len == 2);
 
-        std.debug.assert(left.shape[0] == right.shape[1]);
-        std.debug.assert(left.shape[1] == output.shape[1]);
-        std.debug.assert(right.shape[0] == output.shape[0]);
+        std.debug.assert(left.shape[1] == right.shape[0]);
+        std.debug.assert(left.shape[0] == output.shape[0]);
+        std.debug.assert(right.shape[1] == output.shape[1]);
 
         const params: Params = .{
-            .N = @as(u32, @intCast(left.shape[0])),
-            .M = @as(u32, @intCast(right.shape[1])),
-            .K = @as(u32, @intCast(left.shape[1])),
+            .M = @as(u32, @intCast(left.shape[0])),
+            .N = @as(u32, @intCast(right.shape[1])),
+            .K = @as(u32, @intCast(right.shape[0])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
