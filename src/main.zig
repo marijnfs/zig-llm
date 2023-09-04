@@ -6,6 +6,8 @@ const llm = @import("index.zig");
 const Tensor = llm.Tensor;
 const Tokenizer = llm.Tokenizer;
 
+const io = llm.io;
+
 pub const App = @This();
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -22,45 +24,6 @@ const buffer_size = 1000;
 //     vocab_size: u32, // vocabulary size, usually 256 (byte-level)
 //     seq_len: u32, // max sequence length
 // };
-
-const ModelConfig = extern struct {
-    dim: i32, // transformer dimension
-    hidden_dim: i32, // for ffn layers
-    n_layers: i32, // number of layers
-    n_heads: i32, // number of query heads
-    n_kv_heads: i32, // number of key/value heads (can be < query heads because of multiquery)
-    vocab_size: i32, // vocabulary size, usually 256 (byte-level)
-    seq_len: i32, // max sequence length
-};
-
-const LayerWeights = struct {
-    rms_attention: *Tensor,
-    query_weight: *Tensor,
-    key_weight: *Tensor,
-    value_weight: *Tensor,
-    output_weight: *Tensor,
-    rms_ffn: *Tensor,
-    w1: *Tensor,
-    w2: *Tensor,
-    w3: *Tensor,
-};
-
-const ModelWeights = struct {
-    config: ModelConfig,
-
-    layers: std.ArrayList(LayerWeights),
-
-    token_embedding: *Tensor,
-    final_rms_weight: *Tensor,
-    freq_real: *Tensor,
-    freq_img: *Tensor,
-    final_class_weights: ?*Tensor,
-
-    // - rms final weight = dim
-    // - freq real = seq_len * head_size / 2
-    // - freq img = seq_len * head_size / 2
-    //  - final class weights (if not shared with embedding) vocab * dim
-};
 
 pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Tokenizer) ![]u32 {
     var arena = std.heap.ArenaAllocator.init(allocator_);
@@ -122,253 +85,6 @@ pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Toke
     return try allocator_.dupe(u32, tokens.items);
 }
 
-//Global
-// - token_embedding = vocab_size * dim
-
-//Layer:
-// - rms attention weight = layer * dim
-// - query weight = layer * dim * dim
-// - key weight = layer * dim * dim
-// - value weight = layer * dim * dim
-// - output weight = layer * dim * dim
-// - rms ffn weight = layer * dim * dim
-// - w1 weight = layer * dim * hidden_dim
-// - w2 weights = layer * hidden_dim * dim
-// - w3 weights = layer * dim * hidden_dim
-
-// final
-// - rms final weight = dim
-// - freq real = seq_len * head_size / 2
-// - freq img = seq_len * head_size / 2
-//  - final class weights (if not shared with embedding) vocab * dim
-
-pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !*ModelWeights {
-    var model_weights = try base_allocator.create(ModelWeights);
-
-    // Setup arena
-    var arena = std.heap.ArenaAllocator.init(base_allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
-    // Read buffer
-    var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
-
-    // Open file
-    const checkpoint_path = path;
-    var file = try std.fs.cwd().openFile(checkpoint_path, .{});
-    defer file.close();
-
-    var model_file_buffered = std.io.bufferedReader(file.reader());
-    var model_reader = model_file_buffered.reader();
-
-    // Read config file
-    var config = try model_reader.readStruct(ModelConfig);
-
-    std.log.info("Config: {}", .{config});
-
-    const n_layers = @as(usize, @intCast(config.n_layers));
-    const dim = @as(usize, @intCast(config.dim));
-    const hidden_dim = @as(usize, @intCast(config.hidden_dim));
-    const vocab_size = @as(usize, @intCast(config.vocab_size));
-
-    // Read token embedding
-    try weight_read_buffer.resize(vocab_size * dim);
-    const read = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-    std.log.info("read: {}", .{read});
-
-    var token_embedding = try Tensor.init_from_data(
-        base_allocator,
-        &[_]usize{ vocab_size, dim },
-        .Storage,
-        weight_read_buffer.items,
-    );
-
-    // Start reading weights
-    var layer_weights = std.ArrayList(LayerWeights).init(base_allocator);
-    try layer_weights.resize(n_layers);
-
-    // rms_attention
-    try weight_read_buffer.resize(dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.rms_attention = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{dim},
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // query_weight
-    try weight_read_buffer.resize(dim * dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.query_weight = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ dim, dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // key_weight
-    try weight_read_buffer.resize(dim * dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.key_weight = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ dim, dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // value_weight
-    try weight_read_buffer.resize(dim * dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.value_weight = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ dim, dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    //output_weight
-    try weight_read_buffer.resize(dim * dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.output_weight = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ dim, dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // rms_ffn
-    try weight_read_buffer.resize(dim * dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.rms_ffn = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ dim, dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // w1
-    try weight_read_buffer.resize(hidden_dim * dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.w1 = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ hidden_dim, dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // w2
-    try weight_read_buffer.resize(dim * hidden_dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.w2 = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ dim, hidden_dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // w3
-    try weight_read_buffer.resize(hidden_dim * dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.w3 = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ hidden_dim, dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    try weight_read_buffer.resize(dim);
-    _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-    var final_rms_weight = try Tensor.init_from_data(
-        base_allocator,
-        &[_]usize{dim},
-        .Storage,
-        weight_read_buffer.items,
-    );
-
-    model_weights.* = .{
-        .config = config,
-        .layers = layer_weights,
-        .token_embedding = token_embedding,
-        .final_rms_weight = final_rms_weight,
-        .freq_real = undefined,
-        .freq_img = undefined,
-        .final_class_weights = null,
-    };
-
-    return model_weights;
-}
-
-pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize, path: []const u8) !*Tokenizer {
-    // Read tokenizer
-    var token_file = try std.fs.cwd().openFile(path, .{});
-    defer token_file.close();
-
-    var token_reader = token_file.reader();
-
-    var max_token_length = try token_reader.readInt(u32, std.builtin.Endian.Little);
-    std.log.info("Max token len: {}", .{max_token_length});
-
-    var tokenizer = try base_allocator.create(Tokenizer);
-    tokenizer.* = .{
-        .tokens = std.ArrayList([]const u8).init(base_allocator),
-        .back_map = std.StringHashMap(Tokenizer.Token).init(base_allocator),
-    };
-
-    for (0..vocab_size) |idx| {
-        var score: f32 = 0;
-        _ = try token_reader.readAll(std.mem.asBytes(&score));
-        // const score: f32 = @bitCast(try token_reader.readInt(u32, std.builtin.Endian.Little)); //strange
-        const token_len = try token_reader.readInt(u32, std.builtin.Endian.Little);
-
-        var tokens = try base_allocator.alloc(u8, token_len);
-        defer base_allocator.free(tokens);
-        const read_amt = try token_reader.readAll(tokens);
-        if (read_amt != token_len) {
-            return error.UnexpectedEof;
-        }
-
-        std.log.info("{} {s}, len: {}", .{ idx, tokens, token_len });
-
-        try tokenizer.tokens.append(try base_allocator.dupe(u8, tokens));
-
-        try tokenizer.back_map.put(try base_allocator.dupe(u8, tokens), .{
-            .logit = score,
-            .idx = @as(u32, @intCast(idx)),
-        });
-    }
-
-    return tokenizer;
-}
-
 const AttentionOperator = struct {
     shader_module_slate: *gpu.ShaderModule,
     shader_module_softmax_value: *gpu.ShaderModule,
@@ -386,7 +102,7 @@ const AttentionOperator = struct {
         var operator = try allocator.create(AttentionOperator);
         const shader_module_slate = core.device.createShaderModuleWGSL(
             "attention_slate.wgsl",
-            @embedFile("attention_slate.wgsl"),
+            @embedFile("shaders/attention_slate.wgsl"),
         );
         const pipeline_slate = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{
             .compute = gpu.ProgrammableStageDescriptor{
@@ -397,7 +113,7 @@ const AttentionOperator = struct {
 
         const shader_module_softmax_value = core.device.createShaderModuleWGSL(
             "attention_softmax_value.wgsl",
-            @embedFile("attention_softmax_value.wgsl"),
+            @embedFile("shaders/attention_softmax_value.wgsl"),
         );
         const pipeline_softmax_value = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{
             .compute = gpu.ProgrammableStageDescriptor{
@@ -520,7 +236,7 @@ const RMSNormOperator = struct {
         var operator = try allocator.create(RMSNormOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "rmsnorm_inplace.wgsl",
-            @embedFile("rmsnorm_inplace.wgsl"),
+            @embedFile("shaders/rmsnorm_inplace.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -605,7 +321,7 @@ const AddOperator = struct {
         var operator = try allocator.create(AddOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "add_inplace.wgsl",
-            @embedFile("add_inplace.wgsl"),
+            @embedFile("shaders/add_inplace.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -694,7 +410,7 @@ const ArgmaxOperator = struct {
         var operator = try allocator.create(ArgmaxOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "argmax.wgsl",
-            @embedFile("argmax.wgsl"),
+            @embedFile("shaders/argmax.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -780,7 +496,7 @@ const EmbedOperator = struct {
         var operator = try allocator.create(EmbedOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "embed_token.wgsl",
-            @embedFile("embed_token.wgsl"),
+            @embedFile("shaders/embed_token.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -869,7 +585,7 @@ const ElMulOperator = struct {
         var operator = try allocator.create(ElMulOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "elmul_inplace.wgsl",
-            @embedFile("elmul_inplace.wgsl"),
+            @embedFile("shaders/elmul_inplace.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -958,7 +674,7 @@ const SILUOperator = struct {
         var operator = try allocator.create(SILUOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "silu_inplace.wgsl",
-            @embedFile("silu_inplace.wgsl"),
+            @embedFile("shaders/silu_inplace.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -1044,7 +760,7 @@ const RopeOperator = struct {
         var operator = try allocator.create(RopeOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "rope.wgsl",
-            @embedFile("rope.wgsl"),
+            @embedFile("shaders/rope.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -1136,7 +852,7 @@ const MatOperator = struct {
         var operator = try allocator.create(MatOperator);
         const shader_module = core.device.createShaderModuleWGSL(
             "matmul.wgsl",
-            @embedFile("matmul.wgsl"),
+            @embedFile("shaders/matmul.wgsl"),
         );
         const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
             .module = shader_module,
@@ -1231,12 +947,12 @@ pub fn init(app: *App) !void {
     const tokenizer_path = "/home/marijnfs/Downloads/tokenizer.bin";
     const model_path = "/home/marijnfs/Downloads/stories15M.bin";
 
-    const model_weights = try read_model_weights(allocator, model_path);
+    const model_weights = try io.read_model_weights(allocator, model_path);
     const config = model_weights.config;
 
     const vocab_size = @as(usize, @intCast(config.vocab_size));
 
-    const tokenizer = try read_tokenizer(allocator, vocab_size, tokenizer_path);
+    const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
     const str = "Hello this is a test the monkey sat on a banana-pie, and he squished it. What a mess? for (int i = 0; i < 1204; i += 1) {dosomethign(); } tekening";
     const tokens = try tokenize(allocator, str, tokenizer);
