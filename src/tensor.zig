@@ -4,6 +4,9 @@ const gpu = core.gpu;
 
 const llm = @import("index.zig");
 
+// Tensor
+//   - convention: shape size order starts with 'first' dimension at index 0
+
 pub const Tensor = struct {
     const Type = enum {
         Storage,
@@ -170,7 +173,7 @@ pub const Tensor = struct {
         std.debug.print("\n", .{});
     }
 
-    fn read_data_u32(self: *Tensor, tokenizer: *llm.Tokenizer) void {
+    pub fn read_data_u32(self: *Tensor, tokenizer: *llm.Tokenizer) void {
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
 
