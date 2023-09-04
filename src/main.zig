@@ -272,24 +272,11 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
     }
 
     // w1
-    try weight_read_buffer.resize(dim * hidden_dim);
-    for (layer_weights.items) |*layer| {
-        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-
-        layer.w1 = try Tensor.init_from_data(
-            base_allocator,
-            &[_]usize{ dim, hidden_dim },
-            .Storage,
-            weight_read_buffer.items,
-        );
-    }
-
-    // w2
     try weight_read_buffer.resize(hidden_dim * dim);
     for (layer_weights.items) |*layer| {
         _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
-        layer.w2 = try Tensor.init_from_data(
+        layer.w1 = try Tensor.init_from_data(
             base_allocator,
             &[_]usize{ hidden_dim, dim },
             .Storage,
@@ -297,14 +284,27 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
         );
     }
 
-    // w3
+    // w2
     try weight_read_buffer.resize(dim * hidden_dim);
+    for (layer_weights.items) |*layer| {
+        _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
+
+        layer.w2 = try Tensor.init_from_data(
+            base_allocator,
+            &[_]usize{ dim, hidden_dim },
+            .Storage,
+            weight_read_buffer.items,
+        );
+    }
+
+    // w3
+    try weight_read_buffer.resize(hidden_dim * dim);
     for (layer_weights.items) |*layer| {
         _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.w3 = try Tensor.init_from_data(
             base_allocator,
-            &[_]usize{ dim, hidden_dim },
+            &[_]usize{ hidden_dim, dim },
             .Storage,
             weight_read_buffer.items,
         );
@@ -1401,6 +1401,10 @@ const MatOperator = struct {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
         std.debug.assert(output.shape.len == 2);
+
+        std.debug.assert(left.shape[0] == right.shape[1]);
+        std.debug.assert(left.shape[1] == output.shape[1]);
+        std.debug.assert(right.shape[0] == output.shape[0]);
 
         const params: Params = .{
             .N = @as(u32, @intCast(left.shape[0])),
