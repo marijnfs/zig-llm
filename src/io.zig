@@ -135,13 +135,13 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
     }
 
     // rms_ffn
-    try weight_read_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(dim);
     for (layer_weights.items) |*layer| {
         _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.rms_ffn = try Tensor.init_from_data(
             base_allocator,
-            &[_]usize{ dim, dim },
+            &[_]usize{dim},
             .Storage,
             weight_read_buffer.items,
         );

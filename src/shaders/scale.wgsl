@@ -4,7 +4,8 @@ struct Params {
   L: u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> x : array<f32>;
+@binding(0) @group(0) var<storage, read_write> left : array<f32>;
+@binding(1) @group(0) var<storage, read> right : array<f32>;
 @binding(2) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1)
@@ -19,6 +20,5 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     return;
   }
 
-  let value = x[l * dim + d];
-  x[l * dim + d] = value * (1.0f / (1.0f + exp(-value)));
+  left[l * dim + d] *= right[d];
 }

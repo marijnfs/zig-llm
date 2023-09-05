@@ -679,6 +679,96 @@ const ElMulOperator = struct {
     }
 };
 
+const ScaleOperator = struct {
+    shader_module: *gpu.ShaderModule,
+    pipeline: *gpu.ComputePipeline,
+    param_buffer: *gpu.Buffer,
+
+    const Params = struct {
+        dim: u32,
+        L: u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) !*ScaleOperator {
+        var operator = try allocator.create(ScaleOperator);
+        const shader_module = core.device.createShaderModuleWGSL(
+            "scale.wgsl",
+            @embedFile("shaders/scale.wgsl"),
+        );
+        const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
+            .module = shader_module,
+            .entry_point = "main",
+        } });
+
+        operator.* = .{
+            .shader_module = shader_module,
+            .pipeline = pipeline,
+
+            .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "param_buffer",
+                .usage = .{ .uniform = true, .copy_dst = true },
+                .size = @sizeOf(Params),
+            }),
+        };
+        return operator;
+    }
+
+    pub fn execute(
+        self: *ScaleOperator,
+        left: *Tensor,
+        right: *Tensor,
+    ) void {
+        std.log.info("{any} {any}", .{ left.shape, right.shape });
+        std.debug.assert(left.shape.len == 2);
+        std.debug.assert(right.shape.len == 1);
+        std.debug.assert(left.shape[0] == right.shape[0]);
+
+        const params: Params = .{
+            .L = @as(u32, @intCast(left.shape[1])),
+            .dim = @as(u32, @intCast(left.shape[0])),
+        };
+
+        core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
+
+        const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline.getBindGroupLayout(0),
+            .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+            },
+        }));
+        defer bindings.release();
+
+        const DispatchGroups = struct {
+            X: u32,
+            Y: u32,
+            Z: u32,
+        };
+        const dispatch_groups = DispatchGroups{
+            .X = params.L,
+            .Y = params.dim,
+            .Z = 1,
+        };
+
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+        {
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline);
+            pass_encoder.setBindGroup(0, bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
+};
+
 const SILUOperator = struct {
     shader_module: *gpu.ShaderModule,
     pipeline: *gpu.ComputePipeline,
@@ -1091,6 +1181,8 @@ pub fn init(app: *App) !void {
 
     const elmul_operator = try ElMulOperator.init(allocator);
 
+    const scale_operator = try ScaleOperator.init(allocator);
+
     const add_operator = try AddOperator.init(allocator);
 
     const attention_operator = try AttentionOperator.init(allocator);
@@ -1146,6 +1238,7 @@ pub fn init(app: *App) !void {
     var q = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
     var v = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
 
+    var attention_out = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
     var out = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
 
     var w1_slate = try Tensor.init(allocator, &[_]usize{ hidden_dim, L }, .Storage);
@@ -1166,13 +1259,15 @@ pub fn init(app: *App) !void {
     // }
     // std.log.info("init", .{});
 
-    // var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
-    // embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
-    _ = embed_operator;
+    var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
+    embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
+    // _ = embed_operator;
 
     for (model_weights.layers.items) |*layer| {
         x.copy_to(x_copy);
+
         rmsnorm_operator.execute(x);
+        scale_operator.execute(x, layer.rms_attention);
 
         tmat_operator.execute(layer.query_weight, x, q);
         tmat_operator.execute(layer.key_weight, x, k);
@@ -1180,10 +1275,15 @@ pub fn init(app: *App) !void {
 
         rope_operator.execute(k, q, n_heads);
 
-        attention_operator.execute(q, k, v, slate, out, n_heads);
+        attention_operator.execute(q, k, v, slate, attention_out, n_heads);
+        // out.read_data();
+        // if (true) return;
+        tmat_operator.execute(layer.output_weight, attention_out, out);
 
         add_operator.execute(out, x_copy);
+
         rmsnorm_operator.execute(out);
+        scale_operator.execute(out, layer.rms_ffn);
 
         tmat_operator.execute(layer.w1, out, w1_slate);
         tmat_operator.execute(layer.w3, out, w3_slate);
@@ -1195,6 +1295,7 @@ pub fn init(app: *App) !void {
     }
 
     rmsnorm_operator.execute(x);
+    scale_operator.execute(x, model_weights.final_rms_weight);
 
     // _ = logits;
     // _ = max_index;
