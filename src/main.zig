@@ -327,6 +327,97 @@ const AddOperator = struct {
     }
 };
 
+const TransposeOperator = struct {
+    shader_module: *gpu.ShaderModule,
+    pipeline: *gpu.ComputePipeline,
+    param_buffer: *gpu.Buffer,
+
+    const Params = struct {
+        dim0: u32,
+        dim1: u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) !*TransposeOperator {
+        var operator = try allocator.create(TransposeOperator);
+        const shader_module = core.device.createShaderModuleWGSL(
+            "transpose.wgsl",
+            @embedFile("shaders/transpose.wgsl"),
+        );
+        const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
+            .module = shader_module,
+            .entry_point = "main",
+        } });
+
+        operator.* = .{
+            .shader_module = shader_module,
+            .pipeline = pipeline,
+
+            .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "param_buffer",
+                .usage = .{ .uniform = true, .copy_dst = true },
+                .size = @sizeOf(Params),
+            }),
+        };
+        return operator;
+    }
+
+    pub fn execute(
+        self: *TransposeOperator,
+        left: *Tensor,
+        right: *Tensor,
+    ) void {
+        std.debug.assert(left.shape.len == 2);
+        std.debug.assert(right.shape.len == 2);
+
+        std.debug.assert(left.shape[0] == right.shape[1]);
+        std.debug.assert(left.shape[1] == right.shape[0]);
+
+        const params: Params = .{
+            .dim0 = @as(u32, @intCast(right.shape[0])),
+            .dim1 = @as(u32, @intCast(right.shape[1])),
+        };
+
+        core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
+
+        const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline.getBindGroupLayout(0),
+            .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+            },
+        }));
+        defer bindings.release();
+
+        const DispatchGroups = struct {
+            X: u32,
+            Y: u32,
+            Z: u32,
+        };
+        const dispatch_groups = DispatchGroups{
+            .X = params.dim0,
+            .Y = params.dim1,
+            .Z = 1,
+        };
+
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+        {
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline);
+            pass_encoder.setBindGroup(0, bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
+};
+
 const ArgmaxOperator = struct {
     shader_module: *gpu.ShaderModule,
     pipeline: *gpu.ComputePipeline,
@@ -914,6 +1005,8 @@ pub fn init(app: *App) !void {
 
     const argmax_operator = try ArgmaxOperator.init(allocator);
 
+    const transpose_operator = try TransposeOperator.init(allocator);
+
     const n_heads = @as(usize, @intCast(config.n_heads));
 
     // Steps:
@@ -944,6 +1037,9 @@ pub fn init(app: *App) !void {
     for (random_values) |*v| {
         v.* = (random.float(f32) * 2 - 1) * 0.05;
     }
+
+    var embedding_transposed = try Tensor.init(allocator, &[_]usize{ vocab_size, dim }, .Storage);
+    transpose_operator.execute(embedding_transposed, model_weights.token_embedding);
 
     var x = try Tensor.init_from_data(allocator, &[_]usize{ dim, L }, .Storage, random_values);
     var x_copy = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
@@ -995,7 +1091,7 @@ pub fn init(app: *App) !void {
     // _ = logits;
     // _ = max_index;
     // _ = argmax_operator;
-    const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
+    const final_weights = model_weights.final_class_weights orelse embedding_transposed;
     mat_operator.execute(final_weights, x, logits);
 
     argmax_operator.execute(logits, max_index);
