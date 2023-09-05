@@ -1,12 +1,3 @@
-// We will calculate the attention in a transformer
-// dim is the dimension
-// L is the sequence length
-// n_heads is the number of heads
-// We assume the K/V/Q matrices are already calculated in a previous matmul step
-// These matrices are dim * L and the dim is divided over the number of heads.
-// The slate needs to be a L * L * n_heads slate (could be big!) that represents the attention calculation
-//
-// The dispatch is divided over the sequence length L, and search invocation will perform L comparisons (attention is O(L^2))
 
 struct Params {
   dim : u32,
@@ -32,8 +23,8 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
   var k : u32 = 0u;
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
-    for (var k_ : u32 = 0u; k < dim_per_head; k_ = k_ + 2u) {
-      let freq = 1.0 / pow(10000.0f, f32(k) / f32(dim_per_head));
+    for (var head_k : u32 = 0u; head_k < dim_per_head; head_k = head_k + 2u) {
+      let freq = 1.0 / pow(10000.0f, f32(head_k) / f32(dim_per_head));
       let val = f32(l) * freq;
       let real = cos(val);
       let img = sin(val);
@@ -45,10 +36,10 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
       let qi = Q[l * params.dim + k + 1];
 
       K[l * params.dim + k] = real * kr - img * ki;
-      K[l * params.dim + k + 1] = real * ki - img * kr;
+      K[l * params.dim + k + 1] = real * ki + img * kr;
 
       Q[l * params.dim + k] = real * qr - img * qi;
-      Q[l * params.dim + k + 1] = real * qi - img * qr;
+      Q[l * params.dim + k + 1] = real * qi + img * qr;
 
       k = k + 2u;
     }

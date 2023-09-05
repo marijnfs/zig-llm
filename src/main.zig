@@ -93,9 +93,9 @@ const AttentionOperator = struct {
         const slate_bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline_slate.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, K.buffer, 0, K.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(1, Q.buffer, 0, Q.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(2, slate.buffer, 0, slate.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(0, slate.buffer, 0, slate.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, K.buffer, 0, K.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, Q.buffer, 0, Q.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -126,7 +126,6 @@ const AttentionOperator = struct {
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
 
-        std.log.info("here", .{});
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline_slate);
@@ -135,7 +134,6 @@ const AttentionOperator = struct {
             pass_encoder.end();
         }
 
-        std.log.info("here", .{});
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline_softmax_value);
@@ -143,8 +141,7 @@ const AttentionOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-        // _ = output;
-        std.log.info("here", .{});
+
         // Submit commands
         var command = command_encoder.finish(null);
         defer command.release();
@@ -454,8 +451,8 @@ const ArgmaxOperator = struct {
 
     pub fn execute(
         self: *ArgmaxOperator,
-        values: *Tensor,
         max_index: *Tensor,
+        values: *Tensor,
     ) void {
         const params: Params = .{
             .L = @as(u32, @intCast(values.shape[1])),
@@ -467,8 +464,8 @@ const ArgmaxOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, values.buffer, 0, values.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(1, max_index.buffer, 0, max_index.N * @sizeOf(u32)),
+                gpu.BindGroup.Entry.buffer(0, max_index.buffer, 0, max_index.N * @sizeOf(u32)),
+                gpu.BindGroup.Entry.buffer(1, values.buffer, 0, values.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -1027,7 +1024,7 @@ pub fn init(app: *App) !void {
     // -> rmsnorm with weights again
     // -> matmul with class weights toward vocab size
 
-    const L = 256;
+    const L = 32;
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
 
@@ -1058,7 +1055,15 @@ pub fn init(app: *App) !void {
 
     var max_index = try Tensor.init_u32(allocator, &[_]usize{L}, .Storage);
 
-    std.log.info("init", .{});
+    // {
+    //     mat_operator.execute(embedding_transposed, x, logits);
+
+    //     argmax_operator.execute(max_index, logits);
+    //     max_index.read_data_tokens(tokenizer);
+    //     if (true)
+    //         return;
+    // }
+    // std.log.info("init", .{});
 
     var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
     embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
@@ -1069,6 +1074,7 @@ pub fn init(app: *App) !void {
     for (model_weights.layers.items) |*layer| {
         x.copy_to(x_copy);
         rmsnorm_operator.execute(x);
+
         mat_operator.execute(layer.query_weight, x, q);
         mat_operator.execute(layer.key_weight, x, k);
         mat_operator.execute(layer.value_weight, x, v);
@@ -1076,6 +1082,7 @@ pub fn init(app: *App) !void {
         rope_operator.execute(k, q, n_heads);
 
         attention_operator.execute(q, k, v, slate, out, n_heads);
+
         add_operator.execute(out, x_copy);
         rmsnorm_operator.execute(out);
 
@@ -1096,7 +1103,7 @@ pub fn init(app: *App) !void {
     const final_weights = model_weights.final_class_weights orelse embedding_transposed;
     mat_operator.execute(final_weights, x, logits);
 
-    argmax_operator.execute(logits, max_index);
+    argmax_operator.execute(max_index, logits);
     max_index.read_data_tokens(tokenizer);
 }
 

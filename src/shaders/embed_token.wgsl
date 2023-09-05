@@ -1,7 +1,3 @@
-// We will calculate a matrix multiplication
-// Output = Left * Right
-// O = M * N, Left = M * K, Right = K * N
-// We assume column major storage
 
 struct Params {
   dim: u32,
@@ -32,6 +28,6 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   }
   else
   {
-    output[l * dim + d] = 0;
+    output[l * dim + d] = 1.0;
   }
 }

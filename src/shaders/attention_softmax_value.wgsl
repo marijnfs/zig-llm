@@ -33,12 +33,12 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
     //find max
-    var max = 0.0f;
+    var max_value = slate[h * params.L * params.L + l * params.L];
     for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
       let value = slate[h * params.L * params.L + l * params.L + l_];
-      if (value > max)
+      if (value > max_value)
       {
-        max = value;
+        max_value = value;
       }
     }
 
@@ -46,7 +46,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     var sum = 0.0f;
     for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
       let value = slate[h * params.L * params.L + l * params.L + l_];
-      let exp_value = exp(value - max);
+      let exp_value = exp(value - max_value);
       sum += exp_value;
       slate[h * params.L * params.L + l * params.L + l_] = exp_value;
     }
@@ -59,17 +59,16 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
     // apply attention to value
     // first reset output
-    for (var k: u32 = 0u; k < params.dim; k = k + 1u) {
-      output[l * params.dim + k] = 0.0f;
-    }
+//    for (var k: u32 = 0u; k < params.dim; k = k + 1u) {
+//      output[l * params.dim + k] = 0.0f;
+//    }
 
     // add the weighted values
     for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
       var k : u32 = 0u;
       for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
-        var dot = 0.0f;
         for (var k_ : u32 = 0u; k < dim_per_head; k_ = k_ + 1u) {
-          output[l * params.dim + k] += slate[h * params.L * params.L + l * params.L + l_] * V[l_ * params.dim + k];
+          output[l * params.dim + k] = slate[h * params.L * params.L + l * params.L + l_] * V[l_ * params.dim + k];
           k = k + 1u;
         }
       }

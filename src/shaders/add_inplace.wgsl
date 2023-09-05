@@ -1,7 +1,3 @@
-// We will calculate a matrix multiplication
-// Output = Left * Right
-// O = M * N, Left = M * K, Right = K * N
-// We assume column major storage
 
 struct Params {
   dim: u32,

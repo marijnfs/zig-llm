@@ -14,9 +14,9 @@ struct Params {
   n_heads: u32,
 };
 
-@binding(0) @group(0) var<storage, read> K : array<f32>; //L * dim
-@binding(1) @group(0) var<storage, read> Q : array<f32>; //L * dim
-@binding(2) @group(0) var<storage, read_write> slate : array<f32>; //L * L * n_heads
+@binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L * n_heads
+@binding(1) @group(0) var<storage, read> K : array<f32>; //L * dim
+@binding(2) @group(0) var<storage, read> Q : array<f32>; //L * dim
 @binding(3) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1)
