@@ -1074,7 +1074,7 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Hello this is a";
+    const str = "Once upon a ";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
     // _ = tokens;
 
