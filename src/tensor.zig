@@ -168,7 +168,7 @@ pub const Tensor = struct {
         const output_mapped = output_buffer.getConstMappedRange(f32, 0, self.N);
         defer output_buffer.unmap();
         for (output_mapped.?, 0..) |v, idx| {
-            std.debug.print("{d} {s}", .{ v, if (idx % self.shape[0] == 0) "\n" else "" });
+            std.debug.print("{s}{d} ", .{ if (idx % self.shape[0] == 0) "\n" else "", v });
         }
         std.debug.print("\n", .{});
     }
@@ -210,7 +210,7 @@ pub const Tensor = struct {
         for (output_mapped.?) |v| {
             if (v == 0)
                 continue;
-            std.debug.print("{d} {s}\n", .{ v, tokenizer.tokens.items[v] });
+            std.debug.print("{d} '{s}'\n", .{ v, tokenizer.tokens.items[v] });
         }
         std.debug.print("\n", .{});
     }

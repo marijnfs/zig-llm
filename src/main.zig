@@ -1164,13 +1164,13 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Once upon a ";
+    const str = "Once upon a";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
     // _ = tokens;
 
     std.log.info("Tokenized:", .{});
     for (tokens) |token| {
-        std.log.info("token: {s}", .{tokenizer.tokens.items[token]});
+        std.log.info("token: '{s}' {}", .{ tokenizer.tokens.items[token], token });
     }
 
     // const mat_operator = try MatOperator.init(allocator);
@@ -1217,7 +1217,8 @@ pub fn init(app: *App) !void {
     // -> rmsnorm with weights again
     // -> matmul with class weights toward vocab size
 
-    const L = 32;
+    const L = tokens.len;
+
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
 
