@@ -955,6 +955,105 @@ const MatOperator = struct {
     }
 };
 
+// Mat operator where left matrix is transposed (makes more sense memory wise)
+const TransposeMatOperator = struct {
+    shader_module: *gpu.ShaderModule,
+    pipeline: *gpu.ComputePipeline,
+    param_buffer: *gpu.Buffer,
+
+    const Params = struct {
+        M: u32,
+        K: u32,
+        N: u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) !*TransposeMatOperator {
+        var operator = try allocator.create(TransposeMatOperator);
+        const shader_module = core.device.createShaderModuleWGSL(
+            "transposematmul.wgsl",
+            @embedFile("shaders/transposematmul.wgsl"),
+        );
+        const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
+            .module = shader_module,
+            .entry_point = "main",
+        } });
+
+        operator.* = .{
+            .shader_module = shader_module,
+            .pipeline = pipeline,
+
+            .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "param_buffer",
+                .usage = .{ .uniform = true, .copy_dst = true },
+                .size = @sizeOf(Params),
+            }),
+        };
+        return operator;
+    }
+
+    pub fn execute(
+        self: *TransposeMatOperator,
+        left: *Tensor,
+        right: *Tensor,
+        output: *Tensor,
+    ) void {
+        std.log.info("mat: {any} {any} {any}", .{ left.shape, right.shape, output.shape });
+
+        std.debug.assert(left.shape.len == 2);
+        std.debug.assert(right.shape.len == 2);
+        std.debug.assert(output.shape.len == 2);
+
+        std.debug.assert(left.shape[0] == right.shape[0]);
+        std.debug.assert(left.shape[1] == output.shape[0]);
+        std.debug.assert(right.shape[1] == output.shape[1]);
+
+        const params: Params = .{
+            .M = @as(u32, @intCast(left.shape[1])),
+            .N = @as(u32, @intCast(right.shape[1])),
+            .K = @as(u32, @intCast(right.shape[0])),
+        };
+
+        core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
+
+        const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline.getBindGroupLayout(0),
+            .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, right.buffer, 0, right.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
+            },
+        }));
+        defer bindings.release();
+
+        const DispatchGroups = struct {
+            X: u32,
+            Y: u32,
+            Z: u32,
+        };
+        const dispatch_groups = DispatchGroups{
+            .X = params.M,
+            .Y = params.N,
+            .Z = 1,
+        };
+
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+        {
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline);
+            pass_encoder.setBindGroup(0, bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
+};
 pub fn init(app: *App) !void {
     const allocator = gpa.allocator();
 
@@ -984,7 +1083,9 @@ pub fn init(app: *App) !void {
         std.log.info("token: {s}", .{tokenizer.tokens.items[token]});
     }
 
-    const mat_operator = try MatOperator.init(allocator);
+    // const mat_operator = try MatOperator.init(allocator);
+
+    const tmat_operator = try TransposeMatOperator.init(allocator);
 
     const rope_operator = try RopeOperator.init(allocator);
 
@@ -1065,19 +1166,17 @@ pub fn init(app: *App) !void {
     // }
     // std.log.info("init", .{});
 
-    var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
-    embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
-
-    // if (true) return;
-    // _ = embed_operator;
+    // var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
+    // embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
+    _ = embed_operator;
 
     for (model_weights.layers.items) |*layer| {
         x.copy_to(x_copy);
         rmsnorm_operator.execute(x);
 
-        mat_operator.execute(layer.query_weight, x, q);
-        mat_operator.execute(layer.key_weight, x, k);
-        mat_operator.execute(layer.value_weight, x, v);
+        tmat_operator.execute(layer.query_weight, x, q);
+        tmat_operator.execute(layer.key_weight, x, k);
+        tmat_operator.execute(layer.value_weight, x, v);
 
         rope_operator.execute(k, q, n_heads);
 
@@ -1086,12 +1185,12 @@ pub fn init(app: *App) !void {
         add_operator.execute(out, x_copy);
         rmsnorm_operator.execute(out);
 
-        mat_operator.execute(layer.w1, out, w1_slate);
-        mat_operator.execute(layer.w3, out, w3_slate);
+        tmat_operator.execute(layer.w1, out, w1_slate);
+        tmat_operator.execute(layer.w3, out, w3_slate);
         silu_operator.execute(w1_slate);
 
         elmul_operator.execute(w1_slate, w3_slate);
-        mat_operator.execute(layer.w2, w1_slate, x);
+        tmat_operator.execute(layer.w2, w1_slate, x);
         add_operator.execute(x, x_copy);
     }
 
@@ -1100,8 +1199,8 @@ pub fn init(app: *App) !void {
     // _ = logits;
     // _ = max_index;
     // _ = argmax_operator;
-    const final_weights = model_weights.final_class_weights orelse embedding_transposed;
-    mat_operator.execute(final_weights, x, logits);
+    const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
+    tmat_operator.execute(final_weights, x, logits);
 
     argmax_operator.execute(max_index, logits);
     max_index.read_data_tokens(tokenizer);

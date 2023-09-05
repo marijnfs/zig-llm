@@ -154,7 +154,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
 
         layer.w1 = try Tensor.init_from_data(
             base_allocator,
-            &[_]usize{ hidden_dim, dim },
+            &[_]usize{ dim, hidden_dim },
             .Storage,
             weight_read_buffer.items,
         );
@@ -167,7 +167,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
 
         layer.w2 = try Tensor.init_from_data(
             base_allocator,
-            &[_]usize{ dim, hidden_dim },
+            &[_]usize{ hidden_dim, dim },
             .Storage,
             weight_read_buffer.items,
         );
@@ -180,7 +180,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
 
         layer.w3 = try Tensor.init_from_data(
             base_allocator,
-            &[_]usize{ hidden_dim, dim },
+            &[_]usize{ dim, hidden_dim },
             .Storage,
             weight_read_buffer.items,
         );
