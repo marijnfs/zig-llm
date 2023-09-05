@@ -67,7 +67,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
       var k : u32 = 0u;
       for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
-        for (var k_ : u32 = 0u; k < dim_per_head; k_ = k_ + 1u) {
+        for (var k_ : u32 = 0u; k_ < dim_per_head; k_ = k_ + 1u) {
           output[l * params.dim + k] = slate[h * params.L * params.L + l * params.L + l_] * V[l_ * params.dim + k];
           k = k + 1u;
         }

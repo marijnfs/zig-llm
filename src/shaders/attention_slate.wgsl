@@ -35,7 +35,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     var k : u32 = 0u;
     for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
       var dot = 0.0f;
-      for (var k_ : u32 = 0u; k < dim_per_head; k_ = k_ + 1u) {
+      for (var k_ : u32 = 0u; k_ < dim_per_head; k_ = k_ + 1u) {
         dot += Q[l * params.dim + k] * K[l_ * params.dim + k];
         k = k + 1u;
       }
