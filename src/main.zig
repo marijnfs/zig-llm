@@ -540,10 +540,10 @@ const EmbedOperator = struct {
 
     pub fn execute(
         self: *EmbedOperator,
-        embeddings: *Tensor,
-        tokens: *Tensor,
-        seq_len: usize,
         x: *Tensor,
+        tokens: *Tensor,
+        embeddings: *Tensor,
+        seq_len: usize,
     ) void {
         const params: Params = .{
             .L = @as(u32, @intCast(seq_len)),
@@ -556,9 +556,9 @@ const EmbedOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, embeddings.buffer, 0, embeddings.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, tokens.buffer, 0, tokens.N * @sizeOf(u32)),
-                gpu.BindGroup.Entry.buffer(2, x.buffer, 0, x.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, embeddings.buffer, 0, embeddings.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -570,8 +570,8 @@ const EmbedOperator = struct {
             Z: u32,
         };
         const dispatch_groups = DispatchGroups{
-            .X = params.L,
-            .Y = params.dim,
+            .X = params.dim,
+            .Y = params.L,
             .Z = 1,
         };
 
@@ -978,14 +978,14 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Hello this is a test the monkey sat on a banana-pie, and he squished it. What a mess? for (int i = 0; i < 1204; i += 1) {dosomethign(); } tekening";
+    const str = "Hello this is a";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
-    _ = tokens;
+    // _ = tokens;
 
-    // std.log.info("Tokenized:", .{});
-    // for (tokens) |token| {
-    //     std.log.info("token: {s}", .{tokenizer.tokens.items[token]});
-    // }
+    std.log.info("Tokenized:", .{});
+    for (tokens) |token| {
+        std.log.info("token: {s}", .{tokenizer.tokens.items[token]});
+    }
 
     const mat_operator = try MatOperator.init(allocator);
 
@@ -1035,7 +1035,7 @@ pub fn init(app: *App) !void {
     defer allocator.free(random_values);
 
     for (random_values) |*v| {
-        v.* = (random.float(f32) * 2 - 1) * 0.05;
+        v.* = (random.float(f32) * 2 - 1) * 0.25;
     }
 
     var embedding_transposed = try Tensor.init(allocator, &[_]usize{ vocab_size, dim }, .Storage);
@@ -1060,9 +1060,11 @@ pub fn init(app: *App) !void {
 
     std.log.info("init", .{});
 
-    // var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
-    // embed_operator.execute(model_weights.token_embedding, tokens_tensor, L, x);
-    _ = embed_operator;
+    var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
+    embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
+
+    // if (true) return;
+    // _ = embed_operator;
 
     for (model_weights.layers.items) |*layer| {
         x.copy_to(x_copy);
