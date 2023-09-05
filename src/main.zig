@@ -77,6 +77,7 @@ const AttentionOperator = struct {
         output: *Tensor,
         n_heads: usize,
     ) void {
+        std.log.debug("Q:{any} K:{any} V:{any}", .{ Q.shape, K.shape, V.shape });
         std.debug.assert(Q.shape.len == 2);
         std.debug.assert(K.shape.len == 2);
         std.debug.assert(V.shape.len == 2);
@@ -808,6 +809,8 @@ const MatOperator = struct {
         right: *Tensor,
         output: *Tensor,
     ) void {
+        std.log.info("mat: {any} {any} {any}", .{ left.shape, right.shape, output.shape });
+
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
         std.debug.assert(output.shape.len == 2);
@@ -886,10 +889,12 @@ pub fn init(app: *App) !void {
 
     const str = "Hello this is a test the monkey sat on a banana-pie, and he squished it. What a mess? for (int i = 0; i < 1204; i += 1) {dosomethign(); } tekening";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
-    std.log.info("Tokenized:", .{});
-    for (tokens) |token| {
-        std.log.info("token: {s}", .{tokenizer.tokens.items[token]});
-    }
+    _ = tokens;
+
+    // std.log.info("Tokenized:", .{});
+    // for (tokens) |token| {
+    //     std.log.info("token: {s}", .{tokenizer.tokens.items[token]});
+    // }
 
     const mat_operator = try MatOperator.init(allocator);
 
@@ -929,7 +934,7 @@ pub fn init(app: *App) !void {
     // -> rmsnorm with weights again
     // -> matmul with class weights toward vocab size
 
-    const L = 512;
+    const L = 256;
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
 
@@ -940,22 +945,24 @@ pub fn init(app: *App) !void {
         v.* = (random.float(f32) * 2 - 1) * 0.05;
     }
 
-    var x = try Tensor.init_from_data(allocator, &[_]usize{ L, dim }, .Storage, random_values);
-    var x_copy = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
+    var x = try Tensor.init_from_data(allocator, &[_]usize{ dim, L }, .Storage, random_values);
+    var x_copy = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
 
-    var k = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
-    var q = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
-    var v = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
+    var k = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
+    var q = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
+    var v = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
 
-    var out = try Tensor.init(allocator, &[_]usize{ L, dim }, .Storage);
+    var out = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
 
-    var w1_slate = try Tensor.init(allocator, &[_]usize{ L, hidden_dim }, .Storage);
-    var w3_slate = try Tensor.init(allocator, &[_]usize{ L, hidden_dim }, .Storage);
+    var w1_slate = try Tensor.init(allocator, &[_]usize{ hidden_dim, L }, .Storage);
+    var w3_slate = try Tensor.init(allocator, &[_]usize{ hidden_dim, L }, .Storage);
 
-    var logits = try Tensor.init(allocator, &[_]usize{ L, vocab_size }, .Storage);
-    var slate = try Tensor.init(allocator, &[_]usize{ n_heads, L, L }, .Storage);
+    var logits = try Tensor.init(allocator, &[_]usize{ vocab_size, L }, .Storage);
+    var slate = try Tensor.init(allocator, &[_]usize{ L, L, n_heads }, .Storage);
 
     var max_index = try Tensor.init_u32(allocator, &[_]usize{L}, .Storage);
+
+    std.log.info("init", .{});
 
     // var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
     // embed_operator.execute(model_weights.token_embedding, tokens_tensor, L, x);
@@ -984,11 +991,15 @@ pub fn init(app: *App) !void {
     }
 
     rmsnorm_operator.execute(x);
+
+    // _ = logits;
+    // _ = max_index;
+    // _ = argmax_operator;
     const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
     mat_operator.execute(final_weights, x, logits);
 
     argmax_operator.execute(logits, max_index);
-    max_index.read_data_u32(tokenizer);
+    max_index.read_data_tokens(tokenizer);
 }
 
 pub fn deinit(app: *App) void {

@@ -60,7 +60,8 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
 
     var token_embedding = try Tensor.init_from_data(
         base_allocator,
-        &[_]usize{ vocab_size, dim },
+        // &[_]usize{ dim, vocab_size },
+        &[_]usize{ vocab_size, dim }, // note: wrong, just for test
         .Storage,
         weight_read_buffer.items,
     );
@@ -238,7 +239,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize, path
             return error.UnexpectedEof;
         }
 
-        std.log.info("{} {s}, len: {}", .{ idx, tokens, token_len });
+        // std.log.info("{} {s}, len: {}", .{ idx, tokens, token_len });
 
         try tokenizer.tokens.append(try base_allocator.dupe(u8, tokens));
 

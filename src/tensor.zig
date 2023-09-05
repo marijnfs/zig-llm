@@ -173,7 +173,7 @@ pub const Tensor = struct {
         std.debug.print("\n", .{});
     }
 
-    pub fn read_data_u32(self: *Tensor, tokenizer: *llm.Tokenizer) void {
+    pub fn read_data_tokens(self: *Tensor, tokenizer: *llm.Tokenizer) void {
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
 
