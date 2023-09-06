@@ -1282,6 +1282,7 @@ pub fn init(app: *App) !void {
         tmat_operator.execute(layer.output_weight, attention_out, out);
 
         add_operator.execute(out, x_copy);
+        out.copy_to(x_copy);
 
         rmsnorm_operator.execute(out);
         scale_operator.execute(out, layer.rms_ffn);
