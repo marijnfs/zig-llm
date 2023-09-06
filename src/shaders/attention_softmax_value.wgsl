@@ -56,22 +56,24 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
       let value = slate[h * params.L * params.L + l * params.L + l_];
       slate[h * params.L * params.L + l * params.L + l_] = value / sum;
     }
+  }
 
-    // apply attention to value
-    // first reset output
-    for (var k: u32 = 0u; k < params.dim; k = k + 1u) {
-      output[l * params.dim + k] = 0.0f;
-    }
+  // apply attention to value
+  // first reset output
+  for (var k: u32 = 0u; k < params.dim; k = k + 1u) {
+    output[l * params.dim + k] = 0.0f;
+  }
 
-    // add the weighted values
-    for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
-      var k : u32 = 0u;
-      for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
-        for (var k_ : u32 = 0u; k_ < dim_per_head; k_ = k_ + 1u) {
-          output[l * params.dim + k] += slate[h * params.L * params.L + l * params.L + l_] * V[l_ * params.dim + k];
-          k = k + 1u;
-        }
+  // add the weighted values
+  var k: u32 = 0;
+  for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
+    for (var k_ : u32 = 0u; k_ < dim_per_head; k_ = k_ + 1u) {
+      for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
+        let value = V[l_ * params.dim + k];
+        output[l * params.dim + k] += slate[h * params.L * params.L + l * params.L + l_] * value;
       }
+      k = k + 1u;
     }
   }
+  
 }

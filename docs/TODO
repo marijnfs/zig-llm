@@ -1,4 +1,5 @@
-- Change shape order
-  - shape array will start with _first_ moving dimension. So [4,10] will have 10 sets of 4 sequential values.
+- Figure out issue, we are not reaching same output
+  - until after rope it is ok
   
+
 
