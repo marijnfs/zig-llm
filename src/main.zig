@@ -1021,11 +1021,14 @@ const MatOperator = struct {
             Y: u32,
             Z: u32,
         };
+
+        const G = 1;
         const dispatch_groups = DispatchGroups{
-            .X = params.M,
-            .Y = params.N,
+            .X = (params.M + G - 1) / G,
+            .Y = (params.N + G - 1) / G,
             .Z = 1,
         };
+        std.log.info("{}", .{dispatch_groups});
 
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();

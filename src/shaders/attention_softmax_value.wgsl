@@ -23,8 +23,11 @@ struct Params {
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let l : u32 = GlobalInvocationID.x; //sequence number
   
+  let L = params.L;
+  let L2 = L * L;
+
   // invocations often need to be diadic or power of some number, so we need to explicitly check this of lengths that are off
-  if (l >= params.L)
+  if (l >= L)
   {
     return;
   }
@@ -33,9 +36,9 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
     //find max
-    var max_value = slate[h * params.L * params.L + l * params.L];
-    for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
-      let value = slate[h * params.L * params.L + l * params.L + l_];
+    var max_value = slate[h * L2 + l * L];
+    for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
+      let value = slate[h * L2 + l * L + l_];
       if (value > max_value)
       {
         max_value = value;
@@ -44,17 +47,17 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
     // calculate exponential
     var sum = 0.0f;
-    for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
-      let value = slate[h * params.L * params.L + l * params.L + l_];
+    for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
+      let value = slate[h * L2 + l * L + l_];
       let exp_value = exp(value - max_value);
       sum += exp_value;
-      slate[h * params.L * params.L + l * params.L + l_] = exp_value;
+      slate[h * L2 + l * L + l_] = exp_value;
     }
 
     // normalize
-    for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
-      let value = slate[h * params.L * params.L + l * params.L + l_];
-      slate[h * params.L * params.L + l * params.L + l_] = value / sum;
+    for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
+      let value = slate[h * L2 + l * L + l_];
+      slate[h * L2 + l * L + l_] = value / sum;
     }
   }
 
@@ -68,9 +71,9 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var k: u32 = 0;
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
     for (var k_ : u32 = 0u; k_ < dim_per_head; k_ = k_ + 1u) {
-      for (var l_ : u32 = 0u; l_ < params.L; l_ = l_ + 1u) {
+      for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
         let value = V[l_ * params.dim + k];
-        output[l * params.dim + k] += slate[h * params.L * params.L + l * params.L + l_] * value;
+        output[l * params.dim + k] += slate[h * L2 + l * L + l_] * value;
       }
       k = k + 1u;
     }
