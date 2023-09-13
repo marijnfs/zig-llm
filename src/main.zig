@@ -22,6 +22,13 @@ pub fn init(app: *App) !void {
     try core.init(.{});
     app.* = .{};
 
+    const Mode = enum {
+        Cached,
+        Uncached,
+    };
+
+    var mode: Mode = .Uncached;
+
     const seed: u64 = 123;
     var prng = std.rand.DefaultPrng.init(seed);
     const random = prng.random();
@@ -104,21 +111,34 @@ pub fn init(app: *App) !void {
     var embedding_transposed = try Tensor.init(allocator, &[_]usize{ vocab_size, dim }, .Storage);
     transpose_operator.execute(embedding_transposed, model_weights.token_embedding);
 
-    var x = try Tensor.init_from_data(allocator, &[_]usize{ dim, L }, .Storage, random_values);
-    var x_copy = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
+    // L cache is the size of the caches during computation
+    const L_cache = if (mode == .Uncached) L else 1;
 
-    var k = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
-    var q = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
-    var v = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
+    var x = try Tensor.init_from_data(allocator, &[_]usize{ dim, L_cache }, .Storage, random_values);
+    var x_copy = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
-    var attention_out = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
-    var out = try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage);
+    var q = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var k = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var v = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
-    var w1_slate = try Tensor.init(allocator, &[_]usize{ hidden_dim, L }, .Storage);
-    var w3_slate = try Tensor.init(allocator, &[_]usize{ hidden_dim, L }, .Storage);
+    var k_caches = std.ArrayList(*Tensor).init(allocator);
+    var v_caches = std.ArrayList(*Tensor).init(allocator);
 
-    var logits = try Tensor.init(allocator, &[_]usize{ vocab_size, L }, .Storage);
-    var slate = try Tensor.init(allocator, &[_]usize{ L, L, n_heads }, .Storage);
+    if (mode == .Cached) {
+        for (model_weights.layers.items) |_| {
+            try k_caches.append(try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage));
+            try v_caches.append(try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage));
+        }
+    }
+
+    var attention_out = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var out = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
+
+    var w1_slate = try Tensor.init(allocator, &[_]usize{ hidden_dim, L_cache }, .Storage);
+    var w3_slate = try Tensor.init(allocator, &[_]usize{ hidden_dim, L_cache }, .Storage);
+
+    var logits = try Tensor.init(allocator, &[_]usize{ vocab_size, L_cache }, .Storage);
+    var slate = try Tensor.init(allocator, &[_]usize{ L, L_cache, n_heads }, .Storage);
 
     var max_index = try Tensor.init_u32(allocator, &[_]usize{L}, .Storage);
 
@@ -130,54 +150,62 @@ pub fn init(app: *App) !void {
     //     if (true)
     //         return;
     // }
-    // std.log.info("init", .{});
 
     var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
     embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
     // _ = embed_operator;
 
-    for (model_weights.layers.items) |*layer| {
-        x.copy_to(x_copy);
+    for (0..L_cache) |token_idx| {
+        const cur_idx = if (mode == .Cached) token_idx else null;
 
+        for (model_weights.layers.items, 0..) |*layer, layer_idx| {
+            _ = layer_idx;
+
+            const k_cache = if (cur_idx) |idx| k_caches.items[idx] else k;
+            const v_cache = if (cur_idx) |idx| v_caches.items[idx] else v;
+
+            x.copy_to(x_copy);
+
+            rmsnorm_operator.execute(x);
+            scale_operator.execute(x, layer.rms_attention);
+
+            tmat_operator.execute(layer.query_weight, x, q, null);
+
+            tmat_operator.execute(layer.key_weight, x, k_cache, cur_idx);
+            tmat_operator.execute(layer.value_weight, x, v_cache, cur_idx);
+
+            rope_operator.execute(k_cache, n_heads);
+            rope_operator.execute(q, n_heads);
+
+            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, cur_idx);
+
+            tmat_operator.execute(layer.output_weight, attention_out, out, cur_idx);
+
+            add_operator.execute(out, x_copy);
+            out.copy_to(x_copy);
+
+            rmsnorm_operator.execute(out);
+            scale_operator.execute(out, layer.rms_ffn);
+
+            tmat_operator.execute(layer.w1, out, w1_slate);
+            tmat_operator.execute(layer.w3, out, w3_slate);
+            silu_operator.execute(w1_slate);
+
+            elmul_operator.execute(w1_slate, w3_slate);
+            tmat_operator.execute(layer.w2, w1_slate, x);
+            add_operator.execute(x, x_copy);
+        }
         rmsnorm_operator.execute(x);
-        scale_operator.execute(x, layer.rms_attention);
+        scale_operator.execute(x, model_weights.final_rms_weight);
 
-        tmat_operator.execute(layer.query_weight, x, q);
-        tmat_operator.execute(layer.key_weight, x, k);
-        tmat_operator.execute(layer.value_weight, x, v);
+        // _ = logits;
+        // _ = max_index;
+        // _ = argmax_operator;
+        const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
+        tmat_operator.execute(final_weights, x, logits);
 
-        rope_operator.execute(k, q, n_heads);
-
-        attention_operator.execute(q, k, v, slate, attention_out, n_heads);
-        // out.read_data();
-        // if (true) return;
-        tmat_operator.execute(layer.output_weight, attention_out, out);
-
-        add_operator.execute(out, x_copy);
-        out.copy_to(x_copy);
-
-        rmsnorm_operator.execute(out);
-        scale_operator.execute(out, layer.rms_ffn);
-
-        tmat_operator.execute(layer.w1, out, w1_slate);
-        tmat_operator.execute(layer.w3, out, w3_slate);
-        silu_operator.execute(w1_slate);
-
-        elmul_operator.execute(w1_slate, w3_slate);
-        tmat_operator.execute(layer.w2, w1_slate, x);
-        add_operator.execute(x, x_copy);
+        argmax_operator.execute(max_index, logits, cur_idx);
     }
-
-    rmsnorm_operator.execute(x);
-    scale_operator.execute(x, model_weights.final_rms_weight);
-
-    // _ = logits;
-    // _ = max_index;
-    // _ = argmax_operator;
-    const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
-    tmat_operator.execute(final_weights, x, logits);
-
-    argmax_operator.execute(max_index, logits);
     max_index.read_data_tokens(tokenizer);
 }
 
