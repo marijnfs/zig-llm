@@ -191,10 +191,10 @@ pub fn init(app: *App) !void {
             tmat_operator.execute(layer.key_weight, x, k_cache, cur_idx);
             tmat_operator.execute(layer.value_weight, x, v_cache, cur_idx);
 
-            rope_operator.execute(k_cache, n_heads);
-            rope_operator.execute(q, n_heads);
+            rope_operator.execute(k_cache, n_heads, cur_idx);
+            rope_operator.execute(q, n_heads, cur_idx);
 
-            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, cur_idx);
+            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads);
 
             tmat_operator.execute(layer.output_weight, attention_out, out, null);
 
@@ -204,12 +204,12 @@ pub fn init(app: *App) !void {
             rmsnorm_operator.execute(out);
             scale_operator.execute(out, layer.rms_ffn);
 
-            tmat_operator.execute(layer.w1, out, w1_slate);
-            tmat_operator.execute(layer.w3, out, w3_slate);
+            tmat_operator.execute(layer.w1, out, w1_slate, null);
+            tmat_operator.execute(layer.w3, out, w3_slate, null);
             silu_operator.execute(w1_slate);
 
             elmul_operator.execute(w1_slate, w3_slate);
-            tmat_operator.execute(layer.w2, w1_slate, x);
+            tmat_operator.execute(layer.w2, w1_slate, x, null);
             add_operator.execute(x, x_copy);
         }
         rmsnorm_operator.execute(x);
@@ -219,9 +219,9 @@ pub fn init(app: *App) !void {
         // _ = max_index;
         // _ = argmax_operator;
         const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
-        tmat_operator.execute(final_weights, x, logits);
+        tmat_operator.execute(final_weights, x, logits, null);
 
-        argmax_operator.execute(max_index, logits, cur_idx);
+        argmax_operator.execute(max_index, logits);
 
         //TODO: set predicted token
     }

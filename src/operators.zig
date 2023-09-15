@@ -86,7 +86,6 @@ pub const AttentionOperator = struct {
         slate: *Tensor,
         output: *Tensor,
         n_heads: usize,
-        target_idx: usize,
     ) void {
         std.log.debug("Q:{any} K:{any} V:{any}", .{ Q.shape, K.shape, V.shape });
         std.debug.assert(Q.shape.len == 2);
@@ -138,7 +137,7 @@ pub const AttentionOperator = struct {
         {
             const dispatch_groups = DispatchGroups{
                 .X = params.L_q,
-                .Y = params.l_k,
+                .Y = params.L_k,
                 .Z = params.n_heads,
             };
             const pass_encoder = command_encoder.beginComputePass(null);
@@ -856,6 +855,7 @@ pub const RopeOperator = struct {
         L: u32,
         n_heads: u32,
         base_freq: f32,
+        l_offset: u32,
     };
 
     pub fn init(allocator: std.mem.Allocator) !*RopeOperator {
@@ -886,7 +886,7 @@ pub const RopeOperator = struct {
         self: *RopeOperator,
         k: *Tensor,
         n_heads: usize,
-        target_idx: ?u32,
+        target_idx: ?usize,
     ) void {
         std.debug.assert(k.shape.len == 2);
 
@@ -895,7 +895,7 @@ pub const RopeOperator = struct {
             .dim = @as(u32, @intCast(k.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
             .base_freq = 10000.0,
-            .l_offset = target_idx orelse 0,
+            .l_offset = @as(u32, @intCast(target_idx orelse 0)),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
