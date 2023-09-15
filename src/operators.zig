@@ -5,16 +5,24 @@ const gpu = core.gpu;
 const llm = @import("index.zig");
 const Tensor = llm.Tensor;
 
+const DispatchGroups = struct {
+    X: u32,
+    Y: u32,
+    Z: u32,
+};
+
 pub const AttentionOperator = struct {
     shader_module_slate: *gpu.ShaderModule,
     shader_module_softmax_value: *gpu.ShaderModule,
     pipeline_slate: *gpu.ComputePipeline,
     pipeline_softmax_value: *gpu.ComputePipeline,
+    pipeline_aggregate_value: *gpu.ComputePipeline,
     param_buffer: *gpu.Buffer,
 
     const Params = struct {
         dim: u32,
-        L: u32,
+        L_k: u32,
+        L_q: u32,
         n_heads: u32,
     };
 
@@ -42,12 +50,24 @@ pub const AttentionOperator = struct {
             },
         });
 
+        const shader_module_aggregate_value = core.device.createShaderModuleWGSL(
+            "attention_aggregate_value.wgsl",
+            @embedFile("shaders/attention_aggregate_value.wgsl"),
+        );
+        const pipeline_aggregate_value = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{
+            .compute = gpu.ProgrammableStageDescriptor{
+                .module = shader_module_aggregate_value,
+                .entry_point = "main",
+            },
+        });
+
         operator.* = .{
             .shader_module_slate = shader_module_slate,
             .pipeline_slate = pipeline_slate,
 
             .shader_module_softmax_value = shader_module_softmax_value,
             .pipeline_softmax_value = pipeline_softmax_value,
+            .pipeline_aggregate_value = pipeline_aggregate_value,
 
             .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
                 .label = "param_buffer",
@@ -66,6 +86,7 @@ pub const AttentionOperator = struct {
         slate: *Tensor,
         output: *Tensor,
         n_heads: usize,
+        target_idx: usize,
     ) void {
         std.log.debug("Q:{any} K:{any} V:{any}", .{ Q.shape, K.shape, V.shape });
         std.debug.assert(Q.shape.len == 2);
@@ -73,7 +94,8 @@ pub const AttentionOperator = struct {
         std.debug.assert(V.shape.len == 2);
 
         const params: Params = .{
-            .L = @as(u32, @intCast(Q.shape[1])),
+            .L_q = @as(u32, @intCast(Q.shape[1])),
+            .L_k = @as(u32, @intCast(K.shape[1])),
             .dim = @as(u32, @intCast(Q.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
         };
@@ -94,29 +116,31 @@ pub const AttentionOperator = struct {
         const softmax_bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline_softmax_value.getBindGroupLayout(0),
             .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, slate.buffer, 0, slate.N * @sizeOf(f32)),
+            },
+        }));
+        defer softmax_bindings.release();
+
+        const aggregate_bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline_aggregate_value.getBindGroupLayout(0),
+            .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, V.buffer, 0, V.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, slate.buffer, 0, slate.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
-        defer softmax_bindings.release();
-
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
-        const dispatch_groups = DispatchGroups{
-            .X = params.L,
-            .Y = 1,
-            .Z = 1,
-        };
+        defer aggregate_bindings.release();
 
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
 
         {
+            const dispatch_groups = DispatchGroups{
+                .X = params.L_q,
+                .Y = params.l_k,
+                .Z = params.n_heads,
+            };
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline_slate);
             pass_encoder.setBindGroup(0, slate_bindings, null);
@@ -125,6 +149,11 @@ pub const AttentionOperator = struct {
         }
 
         {
+            const dispatch_groups = DispatchGroups{
+                .X = params.L_q,
+                .Y = 1,
+                .Z = 1,
+            };
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline_softmax_value);
             pass_encoder.setBindGroup(0, softmax_bindings, null);
@@ -132,6 +161,19 @@ pub const AttentionOperator = struct {
             pass_encoder.end();
         }
 
+        {
+            const dispatch_groups = DispatchGroups{
+                .X = params.L_q,
+                .Y = params.dim,
+                .Z = 1,
+            };
+
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline_aggregate_value);
+            pass_encoder.setBindGroup(0, aggregate_bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
         // Submit commands
         var command = command_encoder.finish(null);
         defer command.release();
@@ -196,11 +238,6 @@ pub const RMSNormOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.L,
             .Y = 1,
@@ -285,11 +322,6 @@ pub const AddOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.L,
             .Y = params.dim,
@@ -376,11 +408,6 @@ pub const TransposeOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.dim0,
             .Y = params.dim1,
@@ -461,11 +488,6 @@ pub const ArgmaxOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.L,
             .Y = 1,
@@ -551,11 +573,6 @@ pub const EmbedOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.dim,
             .Y = params.L,
@@ -640,11 +657,6 @@ pub const ElMulOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.L,
             .Y = params.dim,
@@ -730,11 +742,6 @@ pub const ScaleOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.L,
             .Y = params.dim,
@@ -815,11 +822,6 @@ pub const SILUOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.L,
             .Y = params.dim,
@@ -853,6 +855,7 @@ pub const RopeOperator = struct {
         dim: u32,
         L: u32,
         n_heads: u32,
+        base_freq: f32,
     };
 
     pub fn init(allocator: std.mem.Allocator) !*RopeOperator {
@@ -882,17 +885,17 @@ pub const RopeOperator = struct {
     pub fn execute(
         self: *RopeOperator,
         k: *Tensor,
-        q: *Tensor,
         n_heads: usize,
+        target_idx: ?u32,
     ) void {
         std.debug.assert(k.shape.len == 2);
-        std.debug.assert(q.shape.len == 2);
-        std.debug.assert(std.mem.eql(usize, k.shape, q.shape));
 
         const params: Params = .{
             .L = @as(u32, @intCast(k.shape[1])),
             .dim = @as(u32, @intCast(k.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
+            .base_freq = 10000.0,
+            .l_offset = target_idx orelse 0,
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -901,17 +904,11 @@ pub const RopeOperator = struct {
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, k.buffer, 0, k.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(1, q.buffer, 0, q.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+                gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.L,
             .Y = 1,
@@ -1006,12 +1003,6 @@ pub const MatOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
-
         const G = 1;
         const dispatch_groups = DispatchGroups{
             .X = (params.M + G - 1) / G,
@@ -1048,6 +1039,7 @@ pub const TransposeMatOperator = struct {
         M: u32,
         K: u32,
         N: u32,
+        output_offset: u32,
     };
 
     pub fn init(allocator: std.mem.Allocator) !*TransposeMatOperator {
@@ -1079,6 +1071,7 @@ pub const TransposeMatOperator = struct {
         left: *Tensor,
         right: *Tensor,
         output: *Tensor,
+        target_idx: ?usize,
     ) void {
         std.log.info("mat: {any} {any} {any}", .{ left.shape, right.shape, output.shape });
 
@@ -1090,10 +1083,15 @@ pub const TransposeMatOperator = struct {
         std.debug.assert(left.shape[1] == output.shape[0]);
         std.debug.assert(right.shape[1] == output.shape[1]);
 
+        const dim = left.shape[0];
+
+        const output_offset = if (target_idx) |idx| idx * dim else 0;
+
         const params: Params = .{
             .M = @as(u32, @intCast(left.shape[1])),
             .N = @as(u32, @intCast(right.shape[1])),
             .K = @as(u32, @intCast(right.shape[0])),
+            .output_offset = @as(u32, @intCast(output_offset)),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -1109,11 +1107,6 @@ pub const TransposeMatOperator = struct {
         }));
         defer bindings.release();
 
-        const DispatchGroups = struct {
-            X: u32,
-            Y: u32,
-            Z: u32,
-        };
         const dispatch_groups = DispatchGroups{
             .X = params.M,
             .Y = params.N,

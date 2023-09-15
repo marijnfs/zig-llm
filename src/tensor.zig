@@ -77,7 +77,7 @@ pub const Tensor = struct {
         return tensor;
     }
 
-    pub fn init_from_data(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []f32) !*Tensor {
+    pub fn init_from_data(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []const f32) !*Tensor {
         var tensor = try allocator.create(Tensor);
         _ = tensor_type;
 
@@ -107,7 +107,7 @@ pub const Tensor = struct {
         return tensor;
     }
 
-    pub fn init_from_tokens(allocator: std.mem.Allocator, data: []u32) !*Tensor {
+    pub fn init_from_tokens(allocator: std.mem.Allocator, data: []const u32) !*Tensor {
         var tensor = try allocator.create(Tensor);
 
         var N: usize = data.len;
@@ -234,5 +234,21 @@ pub const Tensor = struct {
         var command = command_encoder.finish(null);
         defer command.release();
         core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    }
+
+    pub fn size_from(self: *Tensor, idx: usize) usize {
+        var size: usize = 1;
+        for (self.shape[idx..]) |dim| {
+            size *= dim;
+        }
+        return size;
+    }
+
+    pub fn size_until(self: *Tensor, idx: usize) usize {
+        var size: usize = 1;
+        for (self.shape[0..idx]) |dim| {
+            size *= dim;
+        }
+        return size;
     }
 };

@@ -10,24 +10,22 @@
 
 struct Params {
   dim : u32,
-  L : u32,
+  L_k : u32,
+  L_q : u32,
   n_heads: u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> output : array<f32>; //L * dim
-@binding(1) @group(0) var<storage, read> V : array<f32>; //L * dim
-@binding(2) @group(0) var<storage, read_write> slate : array<f32>; //L * L
-@binding(3) @group(0) var<uniform> params : Params;
+@binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let l : u32 = GlobalInvocationID.x; //sequence number
   
-  let L = params.L;
-  let L2 = L * L;
+  let L = params.L_k;
+  let L2 = params.L_k * params.L_q;
 
   // invocations often need to be diadic or power of some number, so we need to explicitly check this of lengths that are off
-  if (l >= L)
+  if (l >= params.L_q)
   {
     return;
   }
@@ -37,7 +35,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
     //find max
     var max_value = slate[h * L2 + l * L];
-    for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
+    for (var l_ : u32 = 0u; l_ < params.L_k; l_ = l_ + 1u) {
       let value = slate[h * L2 + l * L + l_];
       if (value > max_value)
       {
@@ -58,24 +56,6 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
       let value = slate[h * L2 + l * L + l_];
       slate[h * L2 + l * L + l_] = value / sum;
-    }
-  }
-
-  // apply attention to value
-  // first reset output
-  for (var k: u32 = 0u; k < params.dim; k = k + 1u) {
-    output[l * params.dim + k] = 0.0f;
-  }
-
-  // add the weighted values
-  var k: u32 = 0;
-  for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
-    for (var k_ : u32 = 0u; k_ < dim_per_head; k_ = k_ + 1u) {
-      for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
-        let value = V[l_ * params.dim + k];
-        output[l * params.dim + k] += slate[h * L2 + l * L + l_] * value;
-      }
-      k = k + 1u;
     }
   }
   

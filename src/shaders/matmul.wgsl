@@ -30,7 +30,6 @@ fn main(@builtin(local_invocation_id) LocalInvocationID : vec3<u32>, @builtin(gl
     return;
   }
 
-
   var accum = 0.0f;
   for (var k : u32 = 0u; k < K; k = k + 1u) {
     accum += left[k * M + m] * right[n * K + k];

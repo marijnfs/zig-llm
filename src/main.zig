@@ -151,11 +151,28 @@ pub fn init(app: *App) !void {
     //         return;
     // }
 
-    var tokens_tensor = try Tensor.init_from_tokens(allocator, tokens);
-    embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
     // _ = embed_operator;
 
+    var last_predicted_token: u32 = 1;
+
     for (0..L_cache) |token_idx| {
+
+        // uncached, take all tokens; uncached, take tokens one by one and then the predicted ones.
+        const embed_tokens = b: {
+            if (mode == .Uncached) {
+                break :b tokens;
+            } else {
+                if (token_idx < tokens.len) {
+                    break :b tokens[token_idx..][0..1];
+                } else {
+                    break :b &[_]u32{last_predicted_token};
+                }
+            }
+        };
+
+        var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
+        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
+
         const cur_idx = if (mode == .Cached) token_idx else null;
 
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
@@ -179,7 +196,7 @@ pub fn init(app: *App) !void {
 
             attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, cur_idx);
 
-            tmat_operator.execute(layer.output_weight, attention_out, out, cur_idx);
+            tmat_operator.execute(layer.output_weight, attention_out, out, null);
 
             add_operator.execute(out, x_copy);
             out.copy_to(x_copy);
@@ -205,6 +222,8 @@ pub fn init(app: *App) !void {
         tmat_operator.execute(final_weights, x, logits);
 
         argmax_operator.execute(max_index, logits, cur_idx);
+
+        //TODO: set predicted token
     }
     max_index.read_data_tokens(tokenizer);
 }

@@ -7,6 +7,7 @@ struct Params {
   M : u32,
   K : u32,
   N : u32,
+  output_offset: u32,
 };
 
 @binding(0) @group(0) var<storage, read_write> output : array<f32>;
@@ -35,5 +36,5 @@ fn main(@builtin(local_invocation_id) LocalInvocationID : vec3<u32>, @builtin(gl
   for (var k : u32 = 0u; k < K; k = k + 1u) {
     accum += left[m * K + k] * right[n * K + k];
   }
-  output[n * M + m] = accum;
+  output[params.output_offset + n * M + m] = accum;
 }
