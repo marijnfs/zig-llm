@@ -39,5 +39,5 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     dot += Q[l_q * params.dim + k] * K[l_k * params.dim + k];
     k = k + 1u;
   }
-  slate[h * (params.L * params.L) + l_q * (params.L) + l_k] = dot / sqrt(f32(dim_per_head));
+  slate[h * (params.L_q * params.L_k) + l_q * (params.L_q) + l_k] = dot / sqrt(f32(dim_per_head));
 }

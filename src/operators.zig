@@ -116,6 +116,7 @@ pub const AttentionOperator = struct {
             .layout = self.pipeline_softmax_value.getBindGroupLayout(0),
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, slate.buffer, 0, slate.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
         defer softmax_bindings.release();

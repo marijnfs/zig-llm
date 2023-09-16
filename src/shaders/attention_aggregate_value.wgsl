@@ -15,18 +15,21 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let l : u32 = GlobalInvocationID.x; //sequence number
   let k : u32 = GlobalInvocationID.y; //sequence number
 
-  if (l >= params.L_q || k >= params.dim)
-    break;
+  if (l >= params.L_q || k >= params.dim) {
+    return;
+  }
 
   // apply attention to value
   // first reset output
   output[l * params.dim + k] = 0.0f;
 
   let head_dim = params.dim / params.n_heads;
-  let k_head = k % head_dim;
+  let h = k / head_dim;
+  let L2 = params.L_k * params.L_q;
+
   output[l * params.dim + k] = 0;
-  for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
+  for (var l_ : u32 = 0u; l_ < params.L_k; l_ = l_ + 1u) {
     let value = V[l_ * params.dim + k];
-    output[l * params.dim + k] += slate[h * L2 + l * L + l_] * value;
+    output[l * params.dim + k] += slate[h * L2 + l * params.L_k + l_] * value;
   }
 }
