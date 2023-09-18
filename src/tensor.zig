@@ -173,7 +173,7 @@ pub const Tensor = struct {
         std.debug.print("\n", .{});
     }
 
-    pub fn read_data_tokens(self: *Tensor, tokenizer: *llm.Tokenizer) void {
+    pub fn read_data_tokens(self: *Tensor, tokenizer: *llm.Tokenizer, allocator: std.mem.Allocator) ![]const u32 {
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
 
@@ -213,6 +213,9 @@ pub const Tensor = struct {
             std.debug.print("{d} '{s}'\n", .{ v, tokenizer.tokens.items[v] });
         }
         std.debug.print("\n", .{});
+
+        const token_copy = try allocator.dupe(u32, output_mapped.?);
+        return token_copy;
     }
 
     pub fn create_matching_output_buffer(self: *Tensor) *gpu.Buffer {

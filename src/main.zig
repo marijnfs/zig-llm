@@ -27,7 +27,7 @@ pub fn init(app: *App) !void {
         Uncached,
     };
 
-    var mode: Mode = .Uncached;
+    var mode: Mode = .Cached; //.Uncached;
 
     const seed: u64 = 123;
     var prng = std.rand.DefaultPrng.init(seed);
@@ -43,7 +43,7 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Once upon a";
+    const str = "Never gonna give you";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
     // _ = tokens;
 
@@ -96,17 +96,19 @@ pub fn init(app: *App) !void {
     // -> rmsnorm with weights again
     // -> matmul with class weights toward vocab size
 
-    const L = tokens.len;
+    var L: usize = @as(usize, @intCast(config.seq_len));
+    L = 16;
 
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
 
-    var random_values = try allocator.alloc(f32, L * dim);
-    defer allocator.free(random_values);
+    _ = random;
+    // var random_values = try allocator.alloc(f32, L * dim);
+    // defer allocator.free(random_values);
 
-    for (random_values) |*v| {
-        v.* = (random.float(f32) * 2 - 1) * 0.25;
-    }
+    // for (random_values) |*v| {
+    //     v.* = (random.float(f32) * 2 - 1) * 0.25;
+    // }
 
     var embedding_transposed = try Tensor.init(allocator, &[_]usize{ vocab_size, dim }, .Storage);
     transpose_operator.execute(embedding_transposed, model_weights.token_embedding);
@@ -114,7 +116,7 @@ pub fn init(app: *App) !void {
     // L cache is the size of the caches during computation
     const L_cache = if (mode == .Uncached) L else 1;
 
-    var x = try Tensor.init_from_data(allocator, &[_]usize{ dim, L_cache }, .Storage, random_values);
+    var x = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
     var x_copy = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
     var q = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
@@ -140,7 +142,9 @@ pub fn init(app: *App) !void {
     var logits = try Tensor.init(allocator, &[_]usize{ vocab_size, L_cache }, .Storage);
     var slate = try Tensor.init(allocator, &[_]usize{ L, L_cache, n_heads }, .Storage);
 
-    var max_index = try Tensor.init_u32(allocator, &[_]usize{L}, .Storage);
+    var max_index = try Tensor.init_u32(allocator, &[_]usize{L_cache}, .Storage);
+
+    var all_predicted = std.ArrayList(u32).init(allocator);
 
     // {
     //     mat_operator.execute(embedding_transposed, x, logits);
@@ -155,7 +159,7 @@ pub fn init(app: *App) !void {
 
     var last_predicted_token: u32 = 1;
 
-    for (0..L_cache) |token_idx| {
+    for (0..L) |token_idx| {
 
         // uncached, take all tokens; uncached, take tokens one by one and then the predicted ones.
         const embed_tokens = b: {
@@ -176,10 +180,8 @@ pub fn init(app: *App) !void {
         const cur_idx = if (mode == .Cached) token_idx else null;
 
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
-            _ = layer_idx;
-
-            const k_cache = if (cur_idx) |idx| k_caches.items[idx] else k;
-            const v_cache = if (cur_idx) |idx| v_caches.items[idx] else v;
+            const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
+            const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
 
             x.copy_to(x_copy);
 
@@ -194,7 +196,8 @@ pub fn init(app: *App) !void {
             rope_operator.execute(k_cache, n_heads, cur_idx);
             rope_operator.execute(q, n_heads, cur_idx);
 
-            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads);
+            const L_k = token_idx + 1;
+            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, L_k);
 
             tmat_operator.execute(layer.output_weight, attention_out, out, null);
 
@@ -224,8 +227,15 @@ pub fn init(app: *App) !void {
         argmax_operator.execute(max_index, logits);
 
         //TODO: set predicted token
+        const predicted_tokens = try max_index.read_data_tokens(tokenizer, allocator);
+        std.log.info("predicted_tokens: {any}", .{predicted_tokens});
+        last_predicted_token = predicted_tokens[predicted_tokens.len - 1];
+        try all_predicted.append(last_predicted_token);
     }
-    max_index.read_data_tokens(tokenizer);
+
+    for (all_predicted.items) |token| {
+        std.log.info("token: '{s}' {}", .{ tokenizer.tokens.items[token], token });
+    }
 }
 
 pub fn deinit(app: *App) void {

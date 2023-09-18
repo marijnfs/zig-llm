@@ -86,6 +86,7 @@ pub const AttentionOperator = struct {
         slate: *Tensor,
         output: *Tensor,
         n_heads: usize,
+        L_k: usize,
     ) void {
         std.log.debug("Q:{any} K:{any} V:{any}", .{ Q.shape, K.shape, V.shape });
         std.debug.assert(Q.shape.len == 2);
@@ -94,7 +95,7 @@ pub const AttentionOperator = struct {
 
         const params: Params = .{
             .L_q = @as(u32, @intCast(Q.shape[1])),
-            .L_k = @as(u32, @intCast(K.shape[1])),
+            .L_k = @as(u32, @intCast(L_k)),
             .dim = @as(u32, @intCast(Q.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
         };
@@ -1082,7 +1083,7 @@ pub const TransposeMatOperator = struct {
 
         std.debug.assert(left.shape[0] == right.shape[0]);
         std.debug.assert(left.shape[1] == output.shape[0]);
-        std.debug.assert(right.shape[1] == output.shape[1]);
+        // std.debug.assert(right.shape[1] == output.shape[1]);
 
         const dim = left.shape[0];
 
