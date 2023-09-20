@@ -5,7 +5,7 @@ License: See LICENSE file
 
 Zig/Mach based Language model
 ============
-This repo is an implementation of the language model used in e.g. llama2.cpp and llama2.zig, but it uses WGSL shaders with the great Mach backend, allowing it to use your gpu.
+This repo is an implementation of the language model used in e.g. https://github.com/karpathy/llama2.c and https://github.com/cgbur/llama2.zig, but it uses WGSL shaders with the great Mach backend, allowing it to use your gpu.
 
 State of repo
 =============
@@ -14,6 +14,7 @@ Things that need to be implemented:
 - n_kv_heads is not supported right now, we expect query heads to be same size as key/value heads.
 - sampling is still MAP sampling, temp sampling needs to be implemented.
 - there is still leaking memory in variuos parts.
+- the model.bin file is very shaky, a better model binarization is on the roadmap
 
 Build
 =====
