@@ -25,8 +25,8 @@ Use
 Provide a model and tokenizer file. The llama2 repo tokenizer from karpathy is added in this repository. One of the matching models can be grabbed using:
 `wget https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin`
 
-Then you can run inference using:
+Then you can run inference by providing the models (currently full paths are needed) using:
 
-`./zig-out/bin/llm --model stories15M.bin --tokenizer models/tokenizer.bin --prompt "Once upon a time there was a donkey"`
+`./zig-out/bin/llm --model /full/path/to/stories15M.bin --tokenizer /full/path/to/models/tokenizer.bin --prompt "Once upon a time there was a donkey"`
 
 If you run out of memory, you can limit the token response size with the `--length` parameter.
