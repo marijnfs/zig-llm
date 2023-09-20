@@ -194,8 +194,8 @@ pub fn init(app: *App) !void {
             tmat_operator.execute(layer.key_weight, x, k_cache, cur_idx);
             tmat_operator.execute(layer.value_weight, x, v_cache, cur_idx);
 
-            rope_operator.execute(k_cache, n_heads, cur_idx);
-            rope_operator.execute(q, n_heads, cur_idx);
+            rope_operator.execute(k_cache, n_heads, cur_idx, cur_idx);
+            rope_operator.execute(q, n_heads, cur_idx, 0);
 
             const L_k = token_idx + 1;
             attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, L_k);

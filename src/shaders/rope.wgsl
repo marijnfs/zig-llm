@@ -5,6 +5,7 @@ struct Params {
   n_heads: u32,
   base_freq: f32,
   l_offset : u32,
+  write_l_offset: u32,
 };
 
 @binding(0) @group(0) var<storage, read_write> K : array<f32>; //L * dim
@@ -21,6 +22,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   }
 
   let l = l_base + params.l_offset;
+  let write_l = l_base + params.write_l_offset;
 
   let dim_per_head = params.dim / params.n_heads;
 
@@ -32,11 +34,11 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
       let real = cos(val);
       let img = sin(val);
 
-      let kr = K[l * params.dim + k];
-      let ki = K[l * params.dim + k + 1];
+      let kr = K[write_l * params.dim + k];
+      let ki = K[write_l * params.dim + k + 1];
 
-      K[l * params.dim + k] = real * kr - img * ki;
-      K[l * params.dim + k + 1] = real * ki + img * kr;
+      K[write_l * params.dim + k] = real * kr - img * ki;
+      K[write_l * params.dim + k + 1] = real * ki + img * kr;
 
       k = k + 2u;
     }
