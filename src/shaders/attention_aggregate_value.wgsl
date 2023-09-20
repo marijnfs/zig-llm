@@ -3,6 +3,7 @@ struct Params {
   L_k : u32,
   L_q : u32,
   n_heads: u32,
+  K_max: u32,
 };
 
 @binding(0) @group(0) var<storage, read_write> output : array<f32>; //L * dim
@@ -28,7 +29,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let L2 = params.L_k * params.L_q;
 
   output[l * params.dim + k] = 0;
-  for (var l_ : u32 = 0u; l_ < params.L_k; l_ = l_ + 1u) {
+  for (var l_ : u32 = 0u; l_ < params.K_max; l_ = l_ + 1u) {
     let value = V[l_ * params.dim + k];
     output[l * params.dim + k] += slate[h * L2 + l * params.L_k + l_] * value;
   }

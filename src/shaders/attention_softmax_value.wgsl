@@ -13,6 +13,7 @@ struct Params {
   L_k : u32,
   L_q : u32,
   n_heads: u32,
+  K_max: u32,
 };
 
 @binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L
@@ -36,7 +37,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
     //find max
     var max_value = slate[h * L2 + l * L];
-    for (var l_ : u32 = 0u; l_ < params.L_k; l_ = l_ + 1u) {
+    for (var l_ : u32 = 0u; l_ < params.K_max; l_ = l_ + 1u) {
       let value = slate[h * L2 + l * L + l_];
       if (value > max_value)
       {
@@ -46,7 +47,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
     // calculate exponential
     var sum = 0.0f;
-    for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
+    for (var l_ : u32 = 0u; l_ < params.K_max; l_ = l_ + 1u) {
       let value = slate[h * L2 + l * L + l_];
       let exp_value = exp(value - max_value);
       sum += exp_value;
@@ -54,7 +55,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     }
 
     // normalize
-    for (var l_ : u32 = 0u; l_ < L; l_ = l_ + 1u) {
+    for (var l_ : u32 = 0u; l_ < params.K_max; l_ = l_ + 1u) {
       let value = slate[h * L2 + l * L + l_];
       slate[h * L2 + l * L + l_] = value / sum;
     }

@@ -27,7 +27,8 @@ pub fn init(app: *App) !void {
         Uncached,
     };
 
-    var mode: Mode = .Cached; //.Uncached;
+    // var mode: Mode = .Cached;
+    var mode: Mode = .Uncached;
 
     const seed: u64 = 123;
     var prng = std.rand.DefaultPrng.init(seed);
@@ -43,7 +44,7 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Never gonna give you";
+    const str = "Never";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
     // _ = tokens;
 
@@ -97,7 +98,7 @@ pub fn init(app: *App) !void {
     // -> matmul with class weights toward vocab size
 
     var L: usize = @as(usize, @intCast(config.seq_len));
-    L = 16;
+    L = 2;
 
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));

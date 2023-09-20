@@ -13,6 +13,7 @@ struct Params {
   L_k : u32,
   L_q : u32,
   n_heads: u32,
+  K_max: u32,
 };
 
 @binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L * n_heads
@@ -26,7 +27,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let l_k : u32 = GlobalInvocationID.y; 
   let h : u32 = GlobalInvocationID.z;
 
-  if (l_q >= params.L_q || l_k >= params.L_k || h > params.n_heads)
+  if (l_q >= params.L_q || l_k >= params.K_max || h > params.n_heads)
   {
     return;
   }
