@@ -56,7 +56,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
     // Read token embedding
     try weight_read_buffer.resize(vocab_size * dim);
     const read = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-    std.log.info("read: {}", .{read});
+    std.log.debug("read: {}", .{read});
 
     var token_embedding = try Tensor.init_from_data(
         base_allocator,
@@ -217,7 +217,7 @@ pub fn read_tokenizer(base_allocator: std.mem.Allocator, vocab_size: usize, path
     var token_reader = token_file.reader();
 
     var max_token_length = try token_reader.readInt(u32, std.builtin.Endian.Little);
-    std.log.info("Max token len: {}", .{max_token_length});
+    std.log.debug("Max token len: {}", .{max_token_length});
 
     var tokenizer = try base_allocator.create(llm.Tokenizer);
     tokenizer.* = .{

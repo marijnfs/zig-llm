@@ -44,7 +44,7 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Never";
+    const str = "Once upon";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
     // _ = tokens;
 
@@ -98,7 +98,7 @@ pub fn init(app: *App) !void {
     // -> matmul with class weights toward vocab size
 
     var L: usize = @as(usize, @intCast(config.seq_len));
-    L = 2;
+    L = 64;
 
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
@@ -116,7 +116,7 @@ pub fn init(app: *App) !void {
 
     // L cache is the size of the caches during computation
     const L_cache = if (mode == .Uncached) L else 1;
-
+    //
     var x = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
     var x_copy = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
@@ -175,11 +175,14 @@ pub fn init(app: *App) !void {
             }
         };
 
+        std.log.info("tokens: {any}", .{embed_tokens});
+
         var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
         embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
+        std.log.info("curidx: {any}", .{cur_idx});
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;

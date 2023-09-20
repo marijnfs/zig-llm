@@ -723,7 +723,6 @@ pub const ScaleOperator = struct {
         left: *Tensor,
         right: *Tensor,
     ) void {
-        std.log.info("{any} {any}", .{ left.shape, right.shape });
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 1);
         std.debug.assert(left.shape[0] == right.shape[0]);
@@ -981,8 +980,6 @@ pub const MatOperator = struct {
         right: *Tensor,
         output: *Tensor,
     ) void {
-        std.log.info("mat: {any} {any} {any}", .{ left.shape, right.shape, output.shape });
-
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
         std.debug.assert(output.shape.len == 2);
@@ -1016,7 +1013,6 @@ pub const MatOperator = struct {
             .Y = (params.N + G - 1) / G,
             .Z = 1,
         };
-        std.log.info("{}", .{dispatch_groups});
 
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
@@ -1080,8 +1076,6 @@ pub const TransposeMatOperator = struct {
         output: *Tensor,
         target_idx: ?usize,
     ) void {
-        std.log.info("mat: {any} {any} {any}", .{ left.shape, right.shape, output.shape });
-
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
         std.debug.assert(output.shape.len == 2);
