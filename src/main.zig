@@ -16,6 +16,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const workgroup_size = 64;
 const buffer_size = 1000;
 
+pub const log_level: std.log.Level = .info;
+
 pub fn init(app: *App) !void {
     const allocator = gpa.allocator();
 
@@ -44,14 +46,17 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Once upon";
+    const str = "Once upon a time there was a curous little fox";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
     // _ = tokens;
 
     std.log.info("Tokenized:", .{});
+    const writer = std.io.getStdOut().writer();
+
     for (tokens) |token| {
-        std.log.info("token: '{s}' {}", .{ tokenizer.tokens.items[token], token });
+        try writer.print("{s}-", .{tokenizer.tokens.items[token]});
     }
+    _ = try writer.writeAll("\n");
 
     // const mat_operator = try MatOperator.init(allocator);
 
@@ -98,7 +103,7 @@ pub fn init(app: *App) !void {
     // -> matmul with class weights toward vocab size
 
     var L: usize = @as(usize, @intCast(config.seq_len));
-    L = 64;
+    L = 256;
 
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
@@ -160,6 +165,7 @@ pub fn init(app: *App) !void {
 
     var last_predicted_token: u32 = 1;
 
+    _ = try writer.writeAll("Prediction:\n");
     for (0..L) |token_idx| {
 
         // uncached, take all tokens; uncached, take tokens one by one and then the predicted ones.
@@ -175,14 +181,19 @@ pub fn init(app: *App) !void {
             }
         };
 
-        std.log.info("tokens: {any}", .{embed_tokens});
+        if (mode == .Cached) {
+            if (token_idx < tokens.len) {
+                try writer.print("{s}", .{tokenizer.tokens.items[tokens[token_idx]]});
+            } else {
+                try writer.print("{s}", .{tokenizer.tokens.items[last_predicted_token]});
+            }
+        }
 
         var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
         embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
-        std.log.info("curidx: {any}", .{cur_idx});
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
@@ -231,14 +242,14 @@ pub fn init(app: *App) !void {
         argmax_operator.execute(max_index, logits);
 
         //TODO: set predicted token
-        const predicted_tokens = try max_index.read_data_tokens(tokenizer, allocator);
-        std.log.info("predicted_tokens: {any}", .{predicted_tokens});
+        const predicted_tokens = try max_index.read_data_tokens(allocator);
+        std.log.debug("predicted_tokens: {any}", .{predicted_tokens});
         last_predicted_token = predicted_tokens[predicted_tokens.len - 1];
         try all_predicted.append(last_predicted_token);
     }
 
     for (all_predicted.items) |token| {
-        std.log.info("token: '{s}' {}", .{ tokenizer.tokens.items[token], token });
+        std.log.debug("token: '{s}' {}", .{ tokenizer.tokens.items[token], token });
     }
 }
 
