@@ -1,6 +1,7 @@
 const std = @import("std");
 const core = @import("core");
 const gpu = core.gpu;
+const clap = @import("clap");
 
 const llm = @import("index.zig");
 const operators = llm.operators;
@@ -24,20 +25,47 @@ pub fn init(app: *App) !void {
     try core.init(.{});
     app.* = .{};
 
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help                    Display this help and exit.
+        \\--prompt <str>                Prompt string as input to the model.
+        \\--model <str>                 Path to model file (.bin format).
+        \\--tokenizer <str>             Path to tokenizer (.bin format).
+        \\--length <usize>              Sequence length to predict.
+        \\
+    );
+
+    var diag = clap.Diagnostic{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+        .diagnostic = &diag,
+    }) catch |err| {
+        diag.report(std.io.getStdErr().writer(), err) catch {};
+        return err;
+    };
+
+    const args = res.args;
+
+    if (args.help != 0)
+        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+
     const Mode = enum {
         Cached,
         Uncached,
     };
 
-    // var mode: Mode = .Cached;
-    var mode: Mode = .Uncached;
+    var mode: Mode = .Cached;
+    // var mode: Mode = .Uncached;
 
     const seed: u64 = 123;
     var prng = std.rand.DefaultPrng.init(seed);
     const random = prng.random();
 
-    const tokenizer_path = "/home/marijnfs/Downloads/tokenizer.bin";
-    const model_path = "/home/marijnfs/Downloads/stories15M.bin";
+    if (args.model == null or args.tokenizer == null) {
+        std.log.warn("provide model / tokenizer paths", .{});
+        return;
+    }
+
+    const model_path = args.model.?;
+    const tokenizer_path = args.tokenizer.?;
 
     const model_weights = try io.read_model_weights(allocator, model_path);
     const config = model_weights.config;
@@ -46,7 +74,7 @@ pub fn init(app: *App) !void {
 
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
-    const str = "Once upon a time there was a curous little fox";
+    const str = args.prompt orelse "";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
     // _ = tokens;
 
@@ -102,8 +130,7 @@ pub fn init(app: *App) !void {
     // -> rmsnorm with weights again
     // -> matmul with class weights toward vocab size
 
-    var L: usize = @as(usize, @intCast(config.seq_len));
-    L = 256;
+    var L: usize = args.length orelse @as(usize, @intCast(config.seq_len));
 
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
@@ -152,23 +179,12 @@ pub fn init(app: *App) !void {
 
     var all_predicted = std.ArrayList(u32).init(allocator);
 
-    // {
-    //     mat_operator.execute(embedding_transposed, x, logits);
-
-    //     argmax_operator.execute(max_index, logits);
-    //     max_index.read_data_tokens(tokenizer);
-    //     if (true)
-    //         return;
-    // }
-
-    // _ = embed_operator;
-
     var last_predicted_token: u32 = 1;
 
     _ = try writer.writeAll("Prediction:\n");
     for (0..L) |token_idx| {
 
-        // uncached, take all tokens; uncached, take tokens one by one and then the predicted ones.
+        // uncached, take all tokens; cached, take tokens one by one and then the predicted ones.
         const embed_tokens = b: {
             if (mode == .Uncached) {
                 break :b tokens;
@@ -233,15 +249,11 @@ pub fn init(app: *App) !void {
         rmsnorm_operator.execute(x);
         scale_operator.execute(x, model_weights.final_rms_weight);
 
-        // _ = logits;
-        // _ = max_index;
-        // _ = argmax_operator;
         const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
         tmat_operator.execute(final_weights, x, logits, null);
 
         argmax_operator.execute(max_index, logits);
 
-        //TODO: set predicted token
         const predicted_tokens = try max_index.read_data_tokens(allocator);
         std.log.debug("predicted_tokens: {any}", .{predicted_tokens});
         last_predicted_token = predicted_tokens[predicted_tokens.len - 1];
