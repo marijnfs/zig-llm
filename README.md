@@ -18,7 +18,15 @@ Things that need to be implemented:
 
 Build
 =====
+There are two branches:
+
+# Stable
+`git checkout stable`
+
 Build it using zig version 0.11.0. If this is your default installed zig compiler, you can use `make` or `make release` which are shortcuts to the appropriate build commands (to `zig build` or `zig build -Doptimize=ReleaseSafe`). Otherwise, have a look at `Makefile` and adapt as needed.
+
+# Master
+This is the development branch, which will (mostly) track the latest zig and Mach versions. This is inherently more unstable, but will have the latest features.
 
 Use
 ===
