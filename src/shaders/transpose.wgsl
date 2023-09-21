@@ -12,9 +12,9 @@ const WORKGROUP_SIZE_X: u32 = 1;
 const WORKGROUP_SIZE_Y: u32 = 1;
 
 @compute @workgroup_size(WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y)
-fn main(@builtin(local_invocation_id) LocalInvocationID : vec3<u32>, @builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-  let idx0 : u32 = GlobalInvocationID.x * WORKGROUP_SIZE_X + LocalInvocationID.x;
-  let idx1 : u32 = GlobalInvocationID.y * WORKGROUP_SIZE_Y + LocalInvocationID.y;
+fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
+  let idx0 : u32 = GlobalInvocationID.x;
+  let idx1 : u32 = GlobalInvocationID.y;
 
 
   if (idx0 >= params.dim0 || idx1 >= params.dim1)

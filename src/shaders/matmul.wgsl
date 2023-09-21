@@ -18,9 +18,9 @@ const WORKGROUP_SIZE_X: u32 = 1;
 const WORKGROUP_SIZE_Y: u32 = 1;
 
 @compute @workgroup_size(WORKGROUP_SIZE_X, WORKGROUP_SIZE_Y)
-fn main(@builtin(local_invocation_id) LocalInvocationID : vec3<u32>, @builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-  let m : u32 = GlobalInvocationID.x * WORKGROUP_SIZE_X + LocalInvocationID.x;
-  let n : u32 = GlobalInvocationID.y * WORKGROUP_SIZE_Y + LocalInvocationID.y;
+fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
+  let m : u32 = GlobalInvocationID.x;
+  let n : u32 = GlobalInvocationID.y;
   let M = params.M;
   let K = params.K;
   let N = params.N;

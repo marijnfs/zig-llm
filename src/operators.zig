@@ -11,6 +11,10 @@ const DispatchGroups = struct {
     Z: u32,
 };
 
+fn div_ceil(a: u32, divider: u32) u32 {
+    return (a + divider - 1) / divider;
+}
+
 pub const AttentionOperator = struct {
     shader_module_slate: *gpu.ShaderModule,
     shader_module_softmax_value: *gpu.ShaderModule,
@@ -1109,8 +1113,8 @@ pub const TransposeMatOperator = struct {
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{
-            .X = params.M,
-            .Y = params.N,
+            .X = div_ceil(params.M, 8),
+            .Y = div_ceil(params.N, 8),
             .Z = 1,
         };
 
