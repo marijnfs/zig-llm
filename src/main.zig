@@ -108,7 +108,7 @@ pub fn init(app: *App) !void {
 
     const argmax_operator = try operators.ArgmaxOperator.init(allocator);
 
-    const transpose_operator = try operators.TransposeOperator.init(allocator);
+    // const transpose_operator = try operators.TransposeOperator.init(allocator);
 
     const n_heads = @as(usize, @intCast(config.n_heads));
 
@@ -142,9 +142,6 @@ pub fn init(app: *App) !void {
     // for (random_values) |*v| {
     //     v.* = (random.float(f32) * 2 - 1) * 0.25;
     // }
-
-    var embedding_transposed = try Tensor.init(allocator, &[_]usize{ vocab_size, dim }, .Storage);
-    transpose_operator.execute(embedding_transposed, model_weights.token_embedding);
 
     // L cache is the size of the caches during computation
     const L_cache = if (mode == .Uncached) L else 1;
@@ -183,6 +180,7 @@ pub fn init(app: *App) !void {
 
     _ = try writer.writeAll("Prediction:\n");
     for (0..L) |token_idx| {
+        const command_encoder = core.device.createCommandEncoder(null);
 
         // uncached, take all tokens; cached, take tokens one by one and then the predicted ones.
         const embed_tokens = b: {
@@ -206,7 +204,7 @@ pub fn init(app: *App) !void {
         }
 
         var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
-        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L);
+        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
@@ -214,45 +212,52 @@ pub fn init(app: *App) !void {
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
 
-            x.copy_to(x_copy);
+            x.copy_to(x_copy, command_encoder);
 
-            rmsnorm_operator.execute(x);
-            scale_operator.execute(x, layer.rms_attention);
+            rmsnorm_operator.execute(x, command_encoder);
+            scale_operator.execute(x, layer.rms_attention, command_encoder);
 
-            tmat_operator.execute(layer.query_weight, x, q, null);
+            tmat_operator.execute(layer.query_weight, x, q, null, command_encoder);
 
-            tmat_operator.execute(layer.key_weight, x, k_cache, cur_idx);
-            tmat_operator.execute(layer.value_weight, x, v_cache, cur_idx);
+            tmat_operator.execute(layer.key_weight, x, k_cache, cur_idx, command_encoder);
+            tmat_operator.execute(layer.value_weight, x, v_cache, cur_idx, command_encoder);
 
-            rope_operator.execute(k_cache, n_heads, cur_idx, cur_idx);
-            rope_operator.execute(q, n_heads, cur_idx, 0);
+            rope_operator.execute(k_cache, n_heads, cur_idx, cur_idx, command_encoder);
+            rope_operator.execute(q, n_heads, cur_idx, 0, command_encoder);
 
             const L_k = token_idx + 1;
-            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, L_k);
+            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, L_k, command_encoder);
 
-            tmat_operator.execute(layer.output_weight, attention_out, out, null);
+            tmat_operator.execute(layer.output_weight, attention_out, out, null, command_encoder);
 
-            add_operator.execute(out, x_copy);
-            out.copy_to(x_copy);
+            add_operator.execute(out, x_copy, command_encoder);
+            out.copy_to(x_copy, command_encoder);
 
-            rmsnorm_operator.execute(out);
-            scale_operator.execute(out, layer.rms_ffn);
+            rmsnorm_operator.execute(out, command_encoder);
+            scale_operator.execute(out, layer.rms_ffn, command_encoder);
 
-            tmat_operator.execute(layer.w1, out, w1_slate, null);
-            tmat_operator.execute(layer.w3, out, w3_slate, null);
-            silu_operator.execute(w1_slate);
+            tmat_operator.execute(layer.w1, out, w1_slate, null, command_encoder);
+            tmat_operator.execute(layer.w3, out, w3_slate, null, command_encoder);
+            silu_operator.execute(w1_slate, command_encoder);
 
-            elmul_operator.execute(w1_slate, w3_slate);
-            tmat_operator.execute(layer.w2, w1_slate, x, null);
-            add_operator.execute(x, x_copy);
+            elmul_operator.execute(w1_slate, w3_slate, command_encoder);
+            tmat_operator.execute(layer.w2, w1_slate, x, null, command_encoder);
+            add_operator.execute(x, x_copy, command_encoder);
         }
-        rmsnorm_operator.execute(x);
-        scale_operator.execute(x, model_weights.final_rms_weight);
+        rmsnorm_operator.execute(x, command_encoder);
+        scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
 
         const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
-        tmat_operator.execute(final_weights, x, logits, null);
+        tmat_operator.execute(final_weights, x, logits, null, command_encoder);
 
-        argmax_operator.execute(max_index, logits);
+        argmax_operator.execute(max_index, logits, command_encoder);
+
+        { //submit commands
+            var command = command_encoder.finish(null);
+            defer command.release();
+
+            core.queue.submit(&[_]*gpu.CommandBuffer{command});
+        }
 
         const predicted_tokens = try max_index.read_data_tokens(allocator);
         std.log.debug("predicted_tokens: {any}", .{predicted_tokens});

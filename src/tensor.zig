@@ -221,16 +221,9 @@ pub const Tensor = struct {
         return output_buffer;
     }
 
-    pub fn copy_to(self: *Tensor, to: *Tensor) void {
+    pub fn copy_to(self: *Tensor, to: *Tensor, command_encoder: anytype) void {
         std.debug.assert(self.N == to.N);
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
-
         command_encoder.copyBufferToBuffer(self.buffer, 0, to.buffer, 0, self.N * @sizeOf(f32));
-
-        var command = command_encoder.finish(null);
-        defer command.release();
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 
     pub fn size_from(self: *Tensor, idx: usize) usize {

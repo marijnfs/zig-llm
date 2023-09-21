@@ -92,6 +92,7 @@ pub const AttentionOperator = struct {
         output: *Tensor,
         n_heads: usize,
         K_max: usize,
+        command_encoder: anytype,
     ) void {
         std.log.debug("Q:{any} K:{any} V:{any}", .{ Q.shape, K.shape, V.shape });
         std.debug.assert(Q.shape.len == 2);
@@ -139,9 +140,6 @@ pub const AttentionOperator = struct {
         }));
         defer aggregate_bindings.release();
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
-
         {
             const dispatch_groups = DispatchGroups{
                 .X = div_ceil(params.L_q, 1),
@@ -181,12 +179,6 @@ pub const AttentionOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -227,6 +219,7 @@ pub const RMSNormOperator = struct {
     pub fn execute(
         self: *RMSNormOperator,
         x: *Tensor,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(x.shape.len == 2);
 
@@ -252,8 +245,6 @@ pub const RMSNormOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -261,12 +252,6 @@ pub const RMSNormOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -308,6 +293,7 @@ pub const AddOperator = struct {
         self: *AddOperator,
         left: *Tensor,
         right: *Tensor,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
@@ -336,8 +322,6 @@ pub const AddOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -345,12 +329,6 @@ pub const AddOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -392,6 +370,7 @@ pub const TransposeOperator = struct {
         self: *TransposeOperator,
         left: *Tensor,
         right: *Tensor,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
@@ -422,8 +401,6 @@ pub const TransposeOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -431,12 +408,6 @@ pub const TransposeOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -478,6 +449,7 @@ pub const ArgmaxOperator = struct {
         self: *ArgmaxOperator,
         max_index: *Tensor,
         values: *Tensor,
+        command_encoder: anytype,
     ) void {
         const params: Params = .{
             .L = @as(u32, @intCast(values.shape[1])),
@@ -502,8 +474,6 @@ pub const ArgmaxOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -511,12 +481,6 @@ pub const ArgmaxOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -561,6 +525,7 @@ pub const EmbedOperator = struct {
         tokens: *Tensor,
         embeddings: *Tensor,
         seq_len: usize,
+        command_encoder: anytype,
     ) void {
         const params: Params = .{
             .L = @as(u32, @intCast(seq_len)),
@@ -587,8 +552,6 @@ pub const EmbedOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -596,12 +559,6 @@ pub const EmbedOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -643,6 +600,7 @@ pub const ElMulOperator = struct {
         self: *ElMulOperator,
         left: *Tensor,
         right: *Tensor,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
@@ -671,8 +629,6 @@ pub const ElMulOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -680,12 +636,6 @@ pub const ElMulOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -727,6 +677,7 @@ pub const ScaleOperator = struct {
         self: *ScaleOperator,
         left: *Tensor,
         right: *Tensor,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 1);
@@ -755,8 +706,6 @@ pub const ScaleOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -764,12 +713,6 @@ pub const ScaleOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -810,6 +753,7 @@ pub const SILUOperator = struct {
     pub fn execute(
         self: *SILUOperator,
         x: *Tensor,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(x.shape.len == 2);
 
@@ -835,8 +779,6 @@ pub const SILUOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -844,12 +786,6 @@ pub const SILUOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -897,6 +833,7 @@ pub const RopeOperator = struct {
         n_heads: usize,
         l_offset: ?usize,
         write_l_offset: ?usize,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(k.shape.len == 2);
 
@@ -926,8 +863,6 @@ pub const RopeOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -935,12 +870,6 @@ pub const RopeOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -984,6 +913,7 @@ pub const MatOperator = struct {
         left: *Tensor,
         right: *Tensor,
         output: *Tensor,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
@@ -1019,8 +949,6 @@ pub const MatOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -1028,12 +956,6 @@ pub const MatOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
 
@@ -1080,6 +1002,7 @@ pub const TransposeMatOperator = struct {
         right: *Tensor,
         output: *Tensor,
         target_idx: ?usize,
+        command_encoder: anytype,
     ) void {
         std.debug.assert(left.shape.len == 2);
         std.debug.assert(right.shape.len == 2);
@@ -1119,8 +1042,6 @@ pub const TransposeMatOperator = struct {
             .Z = 1,
         };
 
-        const command_encoder = core.device.createCommandEncoder(null);
-        defer command_encoder.release();
         {
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline);
@@ -1128,11 +1049,5 @@ pub const TransposeMatOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
-
-        // Submit commands
-        var command = command_encoder.finish(null);
-        defer command.release();
-
-        core.queue.submit(&[_]*gpu.CommandBuffer{command});
     }
 };
