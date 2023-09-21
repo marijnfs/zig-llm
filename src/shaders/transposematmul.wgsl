@@ -3,6 +3,8 @@
 // O = M * N, Left = M * K, Right = K * N
 // We assume column major storage
 
+
+
 struct Params {
   M : u32,
   K : u32,

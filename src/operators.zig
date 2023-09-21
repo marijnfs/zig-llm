@@ -144,9 +144,9 @@ pub const AttentionOperator = struct {
 
         {
             const dispatch_groups = DispatchGroups{
-                .X = params.L_q,
-                .Y = params.K_max,
-                .Z = params.n_heads,
+                .X = div_ceil(params.L_q, 1),
+                .Y = div_ceil(params.K_max, 16),
+                .Z = div_ceil(params.n_heads, 16),
             };
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline_slate);
@@ -171,7 +171,7 @@ pub const AttentionOperator = struct {
         {
             const dispatch_groups = DispatchGroups{
                 .X = params.L_q,
-                .Y = params.dim,
+                .Y = div_ceil(params.dim, 32),
                 .Z = 1,
             };
 
@@ -181,6 +181,7 @@ pub const AttentionOperator = struct {
             pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
             pass_encoder.end();
         }
+
         // Submit commands
         var command = command_encoder.finish(null);
         defer command.release();

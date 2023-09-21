@@ -21,7 +21,7 @@ struct Params {
 @binding(2) @group(0) var<storage, read> Q : array<f32>; //L * dim
 @binding(3) @group(0) var<uniform> params : Params;
 
-@compute @workgroup_size(1)
+@compute @workgroup_size(1, 16, 16)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let l_q : u32 = GlobalInvocationID.x; //sequence number
   let l_k : u32 = GlobalInvocationID.y; 
