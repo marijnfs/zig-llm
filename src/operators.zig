@@ -639,6 +639,79 @@ pub const ElMulOperator = struct {
     }
 };
 
+pub const CopyOperator = struct {
+    shader_module: *gpu.ShaderModule,
+    pipeline: *gpu.ComputePipeline,
+    param_buffer: *gpu.Buffer,
+
+    const Params = struct {
+        X: u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) !*CopyOperator {
+        var operator = try allocator.create(CopyOperator);
+        const shader_module = core.device.createShaderModuleWGSL(
+            "elmul_inplace.wgsl",
+            @embedFile("shaders/copy.wgsl"),
+        );
+        const pipeline = core.device.createComputePipeline(&gpu.ComputePipeline.Descriptor{ .compute = gpu.ProgrammableStageDescriptor{
+            .module = shader_module,
+            .entry_point = "main",
+        } });
+
+        operator.* = .{
+            .shader_module = shader_module,
+            .pipeline = pipeline,
+
+            .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "param_buffer",
+                .usage = .{ .uniform = true, .copy_dst = true },
+                .size = @sizeOf(Params),
+            }),
+        };
+        return operator;
+    }
+
+    pub fn execute(
+        self: *CopyOperator,
+        left: *Tensor,
+        right: *Tensor,
+        command_encoder: anytype,
+    ) void {
+        std.debug.assert(left.N == right.N);
+
+        const params: Params = .{
+            .X = @as(u32, @intCast(left.N)),
+        };
+
+        core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
+
+        const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+            .layout = self.pipeline.getBindGroupLayout(0),
+            .entries = &.{
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+            },
+        }));
+        defer bindings.release();
+
+        const dispatch_groups = DispatchGroups{
+            .X = div_ceil(params.X, 64),
+            .Y = 1,
+            .Z = 1,
+        };
+
+        {
+            const pass_encoder = command_encoder.beginComputePass(null);
+            pass_encoder.setPipeline(self.pipeline);
+            pass_encoder.setBindGroup(0, bindings, null);
+            pass_encoder.dispatchWorkgroups(dispatch_groups.X, dispatch_groups.Y, dispatch_groups.Z);
+            pass_encoder.end();
+        }
+    }
+};
+
 pub const ScaleOperator = struct {
     shader_module: *gpu.ShaderModule,
     pipeline: *gpu.ComputePipeline,

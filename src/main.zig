@@ -108,6 +108,7 @@ pub fn init(app: *App) !void {
 
     const argmax_operator = try operators.ArgmaxOperator.init(allocator);
 
+    const copy_operator = try operators.CopyOperator.init(allocator);
     // const transpose_operator = try operators.TransposeOperator.init(allocator);
 
     const n_heads = @as(usize, @intCast(config.n_heads));
@@ -180,8 +181,6 @@ pub fn init(app: *App) !void {
 
     _ = try writer.writeAll("Prediction:\n");
     for (0..L) |token_idx| {
-        const command_encoder = core.device.createCommandEncoder(null);
-
         // uncached, take all tokens; cached, take tokens one by one and then the predicted ones.
         const embed_tokens = b: {
             if (mode == .Uncached) {
@@ -204,15 +203,27 @@ pub fn init(app: *App) !void {
         }
 
         var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
-        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
+        {
+            const command_encoder = core.device.createCommandEncoder(null);
+            embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
+            { //submit commands
+                var command = command_encoder.finish(null);
+                defer command.release();
+
+                core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            }
+        }
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
+            const command_encoder = core.device.createCommandEncoder(null);
+
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
 
-            x.copy_to(x_copy, command_encoder);
+            copy_operator.execute(x_copy, x, command_encoder);
+            // x.copy_to(x_copy, command_encoder);
 
             rmsnorm_operator.execute(x, command_encoder);
             scale_operator.execute(x, layer.rms_attention, command_encoder);
@@ -231,7 +242,9 @@ pub fn init(app: *App) !void {
             tmat_operator.execute(layer.output_weight, attention_out, out, null, command_encoder);
 
             add_operator.execute(out, x_copy, command_encoder);
-            out.copy_to(x_copy, command_encoder);
+
+            // out.copy_to(x_copy, command_encoder);
+            copy_operator.execute(x_copy, out, command_encoder);
 
             rmsnorm_operator.execute(out, command_encoder);
             scale_operator.execute(out, layer.rms_ffn, command_encoder);
@@ -243,7 +256,15 @@ pub fn init(app: *App) !void {
             elmul_operator.execute(w1_slate, w3_slate, command_encoder);
             tmat_operator.execute(layer.w2, w1_slate, x, null, command_encoder);
             add_operator.execute(x, x_copy, command_encoder);
+            { //submit commands
+                var command = command_encoder.finish(null);
+                defer command.release();
+
+                core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            }
         }
+        const command_encoder = core.device.createCommandEncoder(null);
+
         rmsnorm_operator.execute(x, command_encoder);
         scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
 
