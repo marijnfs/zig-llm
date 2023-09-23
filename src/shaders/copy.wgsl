@@ -16,5 +16,5 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     return;
   }
 
-  left[x] *= right[x];
+  left[x] = right[x];
 }
