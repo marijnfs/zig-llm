@@ -88,19 +88,33 @@ pub fn init(app: *App) !void {
 
     // const mat_operator = try MatOperator.init(allocator);
 
+    // Because of different operations needing different parameters, I lazily copied the operations here to allow for different parameters to be used in one command buffer.
+    // This is wasteful, since only a little parameter buffer is needed, not a whole pipeline.
+    // TODO: improve this
+
     const tmat_operator = try operators.TransposeMatOperator.init(allocator);
+    const tmat_operator_1 = try operators.TransposeMatOperator.init(allocator);
+    const tmat_operator_2 = try operators.TransposeMatOperator.init(allocator);
+    const tmat_operator_3 = try operators.TransposeMatOperator.init(allocator);
+    const tmat_operator_4 = try operators.TransposeMatOperator.init(allocator);
+    const tmat_operator_5 = try operators.TransposeMatOperator.init(allocator);
+    const tmat_operator_6 = try operators.TransposeMatOperator.init(allocator);
 
     const rope_operator = try operators.RopeOperator.init(allocator);
+    const rope_operator_1 = try operators.RopeOperator.init(allocator);
 
     const elmul_operator = try operators.ElMulOperator.init(allocator);
 
     const scale_operator = try operators.ScaleOperator.init(allocator);
+    const scale_operator_1 = try operators.ScaleOperator.init(allocator);
 
     const add_operator = try operators.AddOperator.init(allocator);
+    const add_operator_1 = try operators.AddOperator.init(allocator);
 
     const attention_operator = try operators.AttentionOperator.init(allocator);
 
     const rmsnorm_operator = try operators.RMSNormOperator.init(allocator);
+    const rmsnorm_operator_1 = try operators.RMSNormOperator.init(allocator);
 
     const silu_operator = try operators.SILUOperator.init(allocator);
 
@@ -108,12 +122,12 @@ pub fn init(app: *App) !void {
 
     const argmax_operator = try operators.ArgmaxOperator.init(allocator);
 
-    const copy_operator = try operators.CopyOperator.init(allocator);
+    // const copy_operator = try operators.CopyOperator.init(allocator);
     // const transpose_operator = try operators.TransposeOperator.init(allocator);
 
     const n_heads = @as(usize, @intCast(config.n_heads));
 
-    // Steps:
+    // Steps in a layer:
     // -> RMS norm x, with weights
     // -> matmul x to q, k, v
     // -> rope q and k (some versions only rope one)
@@ -222,40 +236,40 @@ pub fn init(app: *App) !void {
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
 
-            copy_operator.execute(x_copy, x, command_encoder);
-            // x.copy_to(x_copy, command_encoder);
+            // copy_operator.execute(x_copy, x, command_encoder);
+            x.copy_to(x_copy, command_encoder);
 
             rmsnorm_operator.execute(x, command_encoder);
             scale_operator.execute(x, layer.rms_attention, command_encoder);
 
             tmat_operator.execute(layer.query_weight, x, q, null, command_encoder);
 
-            tmat_operator.execute(layer.key_weight, x, k_cache, cur_idx, command_encoder);
-            tmat_operator.execute(layer.value_weight, x, v_cache, cur_idx, command_encoder);
+            tmat_operator_1.execute(layer.key_weight, x, k_cache, cur_idx, command_encoder);
+            tmat_operator_2.execute(layer.value_weight, x, v_cache, cur_idx, command_encoder);
 
             rope_operator.execute(k_cache, n_heads, cur_idx, cur_idx, command_encoder);
-            rope_operator.execute(q, n_heads, cur_idx, 0, command_encoder);
+            rope_operator_1.execute(q, n_heads, cur_idx, 0, command_encoder);
 
             const L_k = token_idx + 1;
             attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, L_k, command_encoder);
 
-            tmat_operator.execute(layer.output_weight, attention_out, out, null, command_encoder);
+            tmat_operator_3.execute(layer.output_weight, attention_out, out, null, command_encoder);
 
             add_operator.execute(out, x_copy, command_encoder);
 
-            // out.copy_to(x_copy, command_encoder);
-            copy_operator.execute(x_copy, out, command_encoder);
+            out.copy_to(x_copy, command_encoder);
+            // copy_operator.execute(x_copy, out, command_encoder);
 
-            rmsnorm_operator.execute(out, command_encoder);
-            scale_operator.execute(out, layer.rms_ffn, command_encoder);
+            rmsnorm_operator_1.execute(out, command_encoder);
+            scale_operator_1.execute(out, layer.rms_ffn, command_encoder);
 
-            tmat_operator.execute(layer.w1, out, w1_slate, null, command_encoder);
-            tmat_operator.execute(layer.w3, out, w3_slate, null, command_encoder);
+            tmat_operator_4.execute(layer.w1, out, w1_slate, null, command_encoder);
+            tmat_operator_5.execute(layer.w3, out, w3_slate, null, command_encoder);
             silu_operator.execute(w1_slate, command_encoder);
 
             elmul_operator.execute(w1_slate, w3_slate, command_encoder);
-            tmat_operator.execute(layer.w2, w1_slate, x, null, command_encoder);
-            add_operator.execute(x, x_copy, command_encoder);
+            tmat_operator_6.execute(layer.w2, w1_slate, x, null, command_encoder);
+            add_operator_1.execute(x, x_copy, command_encoder);
             { //submit commands
                 var command = command_encoder.finish(null);
                 defer command.release();
