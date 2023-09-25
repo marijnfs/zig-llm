@@ -3,6 +3,7 @@ struct Params {
   L_k : u32,
   L_q : u32,
   n_heads: u32,
+  n_kv_heads: u32,
   K_max: u32,
 };
 
@@ -25,7 +26,15 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   output[l * params.dim + k] = 0.0f;
 
   let head_dim = params.dim / params.n_heads;
+  let q_per_v = params.n_heads / params.n_kv_heads;
+
   let h = k / head_dim;
+  let h_v = h / q_per_v;
+
+  let k_head = h % head_dim; //index in the head, needed to compute proper value id taking into account n_kv_heads
+
+  let k_v = h_v * head_dim + k_head;
+
   let L2 = params.L_k * params.L_q;
 
   output[l * params.dim + k] = 0;

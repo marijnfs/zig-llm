@@ -126,6 +126,10 @@ pub fn init(app: *App) !void {
     // const transpose_operator = try operators.TransposeOperator.init(allocator);
 
     const n_heads = @as(usize, @intCast(config.n_heads));
+    const n_kv_heads = @as(usize, @intCast(config.n_kv_heads));
+    const dim = @as(usize, @intCast(config.dim));
+    const hidden_dim = @as(usize, @intCast(config.hidden_dim));
+    const kv_dim = n_kv_heads * (dim / n_heads);
 
     // Steps in a layer:
     // -> RMS norm x, with weights
@@ -147,9 +151,6 @@ pub fn init(app: *App) !void {
 
     var L: usize = args.length orelse @as(usize, @intCast(config.seq_len));
 
-    const dim = @as(usize, @intCast(config.dim));
-    const hidden_dim = @as(usize, @intCast(config.hidden_dim));
-
     _ = random;
     // var random_values = try allocator.alloc(f32, L * dim);
     // defer allocator.free(random_values);
@@ -165,16 +166,16 @@ pub fn init(app: *App) !void {
     var x_copy = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
     var q = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
-    var k = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
-    var v = try Tensor.init(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var k = try Tensor.init(allocator, &[_]usize{ kv_dim, L_cache }, .Storage);
+    var v = try Tensor.init(allocator, &[_]usize{ kv_dim, L_cache }, .Storage);
 
     var k_caches = std.ArrayList(*Tensor).init(allocator);
     var v_caches = std.ArrayList(*Tensor).init(allocator);
 
     if (mode == .Cached) {
         for (model_weights.layers.items) |_| {
-            try k_caches.append(try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage));
-            try v_caches.append(try Tensor.init(allocator, &[_]usize{ dim, L }, .Storage));
+            try k_caches.append(try Tensor.init(allocator, &[_]usize{ kv_dim, L }, .Storage));
+            try v_caches.append(try Tensor.init(allocator, &[_]usize{ kv_dim, L }, .Storage));
         }
     }
 
@@ -242,7 +243,7 @@ pub fn init(app: *App) !void {
             rope_operator_1.execute(q, n_heads, cur_idx, 0, command_encoder);
 
             const L_k = token_idx + 1;
-            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, L_k, command_encoder);
+            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, n_kv_heads, L_k, command_encoder);
 
             tmat_operator_3.execute(layer.output_weight, attention_out, out, null, command_encoder);
 

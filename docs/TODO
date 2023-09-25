@@ -1,5 +1,3 @@
-- Figure out issue, we are not reaching same output
-  - until after rope it is ok
-  
-
-
+[] Add n-kv-heads
+[] support 16fp and run 7B llama
+[] update format with checksum, so we can load our own models

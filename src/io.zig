@@ -52,6 +52,11 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
     const vocab_size = @as(usize, @intCast(config.vocab_size));
+    const n_heads = @as(usize, @intCast(config.n_heads));
+
+    const head_size = dim / n_heads;
+    const n_kv_heads = @as(usize, @intCast(config.n_kv_heads));
+    const kv_dim = n_kv_heads * head_size;
 
     // Read token embedding
     try weight_read_buffer.resize(vocab_size * dim);
@@ -96,26 +101,26 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
     }
 
     // key_weight
-    try weight_read_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(kv_dim * dim);
     for (layer_weights.items) |*layer| {
         _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.key_weight = try Tensor.init_from_data(
             base_allocator,
-            &[_]usize{ dim, dim },
+            &[_]usize{ kv_dim, dim },
             .Storage,
             weight_read_buffer.items,
         );
     }
 
     // value_weight
-    try weight_read_buffer.resize(dim * dim);
+    try weight_read_buffer.resize(kv_dim * dim);
     for (layer_weights.items) |*layer| {
         _ = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
 
         layer.value_weight = try Tensor.init_from_data(
             base_allocator,
-            &[_]usize{ dim, dim },
+            &[_]usize{ kv_dim, dim },
             .Storage,
             weight_read_buffer.items,
         );

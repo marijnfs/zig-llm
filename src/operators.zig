@@ -28,6 +28,7 @@ pub const AttentionOperator = struct {
         L_k: u32,
         L_q: u32,
         n_heads: u32,
+        n_kv_heads: u32,
         K_max: u32,
     };
 
@@ -91,6 +92,7 @@ pub const AttentionOperator = struct {
         slate: *Tensor,
         output: *Tensor,
         n_heads: usize,
+        n_kv_heads: usize,
         K_max: usize,
         command_encoder: anytype,
     ) void {
@@ -104,6 +106,7 @@ pub const AttentionOperator = struct {
             .L_k = @as(u32, @intCast(K.shape[1])),
             .dim = @as(u32, @intCast(Q.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
+            .n_kv_heads = @intCast(n_kv_heads),
             .K_max = @as(u32, @intCast(K_max)),
         };
 

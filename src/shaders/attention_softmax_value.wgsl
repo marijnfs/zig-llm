@@ -13,6 +13,7 @@ struct Params {
   L_k : u32,
   L_q : u32,
   n_heads: u32,
+  n_kv_heads: u32,
   K_max: u32,
 };
 

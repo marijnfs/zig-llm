@@ -13,6 +13,7 @@ struct Params {
   L_k : u32,
   L_q : u32,
   n_heads: u32,
+  n_kv_heads : u32,
   K_max: u32,
 };
 
@@ -33,12 +34,16 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   }
 
   let dim_per_head = params.dim / params.n_heads;
+  let head_per_q = params.n_heads / params.n_kv_heads;
 
-  var k : u32 = h * dim_per_head;
+  var k_q : u32 = h * dim_per_head;
+  var k_k : u32 = (h / head_per_q) * dim_per_head;
+
   var dot = 0.0f;
   for (var k_head : u32 = 0u; k_head < dim_per_head; k_head = k_head + 1u) {
-    dot += Q[l_q * params.dim + k] * K[l_k * params.dim + k];
-    k = k + 1u;
+    dot += Q[l_q * params.dim + k_q] * K[l_k * params.dim + k_k];
+    k_q = k_q + 1u;
+    k_k = k_k + 1u;
   }
   slate[h * (params.L_q * params.L_k) + l_q * (params.L_q) + l_k] = dot / sqrt(f32(dim_per_head));
 }
