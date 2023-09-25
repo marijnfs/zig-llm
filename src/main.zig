@@ -217,22 +217,13 @@ pub fn init(app: *App) !void {
         }
 
         var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
-        {
-            const command_encoder = core.device.createCommandEncoder(null);
-            embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
-            { //submit commands
-                var command = command_encoder.finish(null);
-                defer command.release();
 
-                core.queue.submit(&[_]*gpu.CommandBuffer{command});
-            }
-        }
+        const command_encoder = core.device.createCommandEncoder(null);
+        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
-            const command_encoder = core.device.createCommandEncoder(null);
-
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
 
@@ -270,14 +261,7 @@ pub fn init(app: *App) !void {
             elmul_operator.execute(w1_slate, w3_slate, command_encoder);
             tmat_operator_6.execute(layer.w2, w1_slate, x, null, command_encoder);
             add_operator_1.execute(x, x_copy, command_encoder);
-            { //submit commands
-                var command = command_encoder.finish(null);
-                defer command.release();
-
-                core.queue.submit(&[_]*gpu.CommandBuffer{command});
-            }
         }
-        const command_encoder = core.device.createCommandEncoder(null);
 
         rmsnorm_operator.execute(x, command_encoder);
         scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
