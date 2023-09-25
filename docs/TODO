@@ -1,3 +1,5 @@
-[] Add n-kv-heads
+[v] Add n-kv-heads
 [] support 16fp and run 7B llama
 [] update format with checksum, so we can load our own models
+  - alternative: implement the latest llama2.bin format
+[] support quantized weights
