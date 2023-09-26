@@ -44,7 +44,7 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
     if (magic == karpathy_magic_byte) {
         return error.ModelFormatNotSupported;
     } else if (magic == our_magic_byte) {
-        return error.ModelFormatNotSupported;
+        return try read_model_weights_ours(base_allocator, file.reader());
     } else {
         // Assume legacy format
         return try read_model_weights_karpathy_legacy(base_allocator, file.reader());
