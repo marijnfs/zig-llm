@@ -54,18 +54,27 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
 }
 
 pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytype) !*ModelWeights {
+    // Setup arena
+    var arena = std.heap.ArenaAllocator.init(base_allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    // Setup buffered reader
+    var model_file_buffered = std.io.bufferedReader(reader);
+    var model_reader = model_file_buffered.reader();
+
+
+    // Reading our version header
     const our_magic_byte = 0x7a657865;
 
-    const Header = struct {
+    const Header = extern struct {
         magic: u32,
         major: u32,
         minor: u32,
     };
 
-    var model_file_buffered = std.io.bufferedReader(reader);
-    var model_reader = model_file_buffered.reader();
-
     var header = try model_reader.readStruct(Header);
+    std.log.info("Header: {}", .{header});
 
     std.debug.assert(header.magic == our_magic_byte);
 
@@ -73,10 +82,8 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
         return error.VersionTooNew;
     }
 
-    // Setup arena
-    var arena = std.heap.ArenaAllocator.init(base_allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
+
+    // Setup data
 
     var model_weights = try base_allocator.create(ModelWeights);
 

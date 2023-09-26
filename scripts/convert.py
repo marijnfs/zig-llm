@@ -99,6 +99,7 @@ def save_header(out_file, model, params):
     n_kv_heads = params['n_kv_heads'] if 'n_kv_heads' in params else params['n_heads']
     header = struct.pack('iiiiiii', params['dim'], hidden_dim, params['n_layers'], params['n_heads'],
                                     n_kv_heads, vocab_size, max_seq_len)
+    out_file.write(header)
 
 
 # Open files
