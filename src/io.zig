@@ -25,22 +25,47 @@ const Tensor = llm.Tensor;
 //  - final class weights (if not shared with embedding) vocab * dim
 
 pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !*ModelWeights {
-    var model_weights = try base_allocator.create(ModelWeights);
-
-    // Setup arena
-    var arena = std.heap.ArenaAllocator.init(base_allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
-    // Read buffer
-    var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
 
     // Open file
     const checkpoint_path = path;
     var file = try std.fs.cwd().openFile(checkpoint_path, .{});
     defer file.close();
 
-    var model_file_buffered = std.io.bufferedReader(file.reader());
+    const magic = b: {
+        var model_reader = file.reader();
+        const magic = try model_reader.readInt(u32, .Little);
+        try file.seekTo(0); //set back file after reading
+        break :b magic;
+    };
+
+    const karpathy_magic_byte = 0x616b3432;
+    const our_magic_byte = 0x616b3432;
+
+    if (magic == karpathy_magic_byte) {
+        return error.ModelFormatNotSupported;
+    } else if (magic == our_magic_byte) {
+        return error.ModelFormatNotSupported;
+    } else {
+        // Assume legacy format
+        return try read_model_weights_karpathy_legacy(base_allocator, file.reader());
+    }
+
+    return error.ModelFormatNotSupported;
+}
+
+pub fn read_model_weights_karpathy_legacy(base_allocator: std.mem.Allocator, reader: anytype) !*ModelWeights {
+
+    // Setup arena
+    var arena = std.heap.ArenaAllocator.init(base_allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    var model_weights = try base_allocator.create(ModelWeights);
+
+    // Read buffer
+    var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
+
+    var model_file_buffered = std.io.bufferedReader(reader);
     var model_reader = model_file_buffered.reader();
 
     // Read config file
