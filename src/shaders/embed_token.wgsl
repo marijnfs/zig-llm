@@ -5,9 +5,9 @@ struct Params {
   n_tokens: u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> output : array<f32>;
+@binding(0) @group(0) var<storage, read_write> output : array<f16>;
 @binding(1) @group(0) var<storage, read> tokens : array<u32>;
-@binding(2) @group(0) var<storage, read> embeddings : array<f32>;
+@binding(2) @group(0) var<storage, read> embeddings : array<f16>;
 @binding(3) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1)

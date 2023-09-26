@@ -17,7 +17,7 @@ pub const Tensor = struct {
     buffer: *gpu.Buffer,
     lookup_buffer: ?*gpu.Buffer = null, // Buffer used when we have lookup table compression
 
-    pub fn init(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type) !*Tensor {
+    pub fn init_f32(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type) !*Tensor {
         var tensor = try allocator.create(Tensor);
         _ = tensor_type;
 
@@ -41,6 +41,36 @@ pub const Tensor = struct {
         };
 
         var buffer_mapped = tensor.buffer.getMappedRange(f32, 0, N);
+        @memset(buffer_mapped.?, 0.0);
+        tensor.buffer.unmap();
+
+        return tensor;
+    }
+
+    pub fn init_f16(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type) !*Tensor {
+        var tensor = try allocator.create(Tensor);
+        _ = tensor_type;
+
+        var N: usize = 1;
+        for (shape) |dim| {
+            N *= dim;
+        }
+        tensor.* = .{
+            .N = N,
+            .shape = try allocator.dupe(usize, shape),
+            .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "buffer",
+                .usage = .{
+                    .storage = true,
+                    .copy_dst = true,
+                    .copy_src = true,
+                },
+                .size = N * @sizeOf(f16),
+                .mapped_at_creation = .true,
+            }),
+        };
+
+        var buffer_mapped = tensor.buffer.getMappedRange(f16, 0, N);
         @memset(buffer_mapped.?, 0.0);
         tensor.buffer.unmap();
 

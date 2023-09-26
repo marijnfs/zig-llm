@@ -4,7 +4,7 @@ struct Params {
 };
 
 @binding(0) @group(0) var<storage, read_write> max_index : array<u32>;
-@binding(1) @group(0) var<storage, read> values : array<f32>;
+@binding(1) @group(0) var<storage, read> values : array<f16>;
 @binding(2) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1)
@@ -19,7 +19,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   }
 
   var idx: u32 = 0;
-  var value: f32 = values[l * dim];
+  var value: f16 = values[l * dim];
   for (var d : u32 = 0u; d < dim; d = d + 1u) {
     let cmp_value = values[l * dim + d];
     if (cmp_value > value) {

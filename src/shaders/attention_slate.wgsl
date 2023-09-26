@@ -17,9 +17,9 @@ struct Params {
   K_max: u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L * n_heads
-@binding(1) @group(0) var<storage, read> K : array<f32>; //L * dim
-@binding(2) @group(0) var<storage, read> Q : array<f32>; //L * dim
+@binding(0) @group(0) var<storage, read_write> slate : array<f16>; //L * L * n_heads
+@binding(1) @group(0) var<storage, read> K : array<f16>; //L * dim
+@binding(2) @group(0) var<storage, read> Q : array<f16>; //L * dim
 @binding(3) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1, 16, 16)
@@ -45,5 +45,5 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     k_q = k_q + 1u;
     k_k = k_k + 1u;
   }
-  slate[h * (params.L_q * params.L_k) + l_q * (params.L_q) + l_k] = dot / sqrt(f32(dim_per_head));
+  slate[h * (params.L_q * params.L_k) + l_q * (params.L_q) + l_k] = dot / sqrt(f16(dim_per_head));
 }

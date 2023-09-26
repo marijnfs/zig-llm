@@ -62,9 +62,14 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
         minor: u32,
     };
 
-    std.debug.assert(magic == our_magic_byte);
+    var model_file_buffered = std.io.bufferedReader(reader);
+    var model_reader = model_file_buffered.reader();
 
-    if (major > 0) {
+    var header = try model_reader.readStruct(Header);
+
+    std.debug.assert(header.magic == our_magic_byte);
+
+    if (header.major > 0) {
         return error.VersionTooNew;
     }
 
@@ -77,9 +82,6 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
 
     // Read buffer
     var weight_read_buffer = std.ArrayList(f32).init(arena_allocator);
-
-    var model_file_buffered = std.io.bufferedReader(reader);
-    var model_reader = model_file_buffered.reader();
 
     // Read config file
     var config = try model_reader.readStruct(model.ModelConfig);
