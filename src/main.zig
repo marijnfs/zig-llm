@@ -122,6 +122,8 @@ pub fn init(app: *App) !void {
 
     const argmax_operator = try operators.ArgmaxOperator.init(allocator);
 
+    const lookup_operator = try operators.LookupOperator.init(allocator);
+
     // const copy_operator = try operators.CopyOperator.init(allocator);
     // const transpose_operator = try operators.TransposeOperator.init(allocator);
 

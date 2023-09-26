@@ -12,10 +12,10 @@ pub const Tensor = struct {
         Storage,
         Target,
     };
-
     shape: []const usize,
     N: usize,
     buffer: *gpu.Buffer,
+    lookup_buffer: ?*gpu.Buffer = null, // Buffer used when we have lookup table compression
 
     pub fn init(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type) !*Tensor {
         var tensor = try allocator.create(Tensor);
@@ -129,6 +129,53 @@ pub const Tensor = struct {
         var buffer_mapped = tensor.buffer.getMappedRange(u32, 0, N);
         std.mem.copy(u32, buffer_mapped.?, data);
         tensor.buffer.unmap();
+
+        return tensor;
+    }
+
+    pub fn init_from_data_q8_lookup(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []const u8, lookup_table: []const f16) !*Tensor {
+        var tensor = try allocator.create(Tensor);
+        _ = tensor_type;
+
+        var N: usize = 1;
+        for (shape) |dim| {
+            N *= dim;
+        }
+
+        const TableSize = 256;
+
+        tensor.* = .{
+            .N = N,
+            .shape = try allocator.dupe(usize, shape),
+            .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "buffer",
+                .usage = .{
+                    .storage = true,
+                    .copy_dst = true,
+                    .copy_src = true,
+                },
+                .size = N * @sizeOf(u8),
+                .mapped_at_creation = .true,
+            }),
+            .lookup_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "buffer",
+                .usage = .{
+                    .storage = true,
+                    .copy_dst = true,
+                    .copy_src = true,
+                },
+                .size = TableSize * @sizeOf(f16),
+                .mapped_at_creation = .true,
+            }),
+        };
+
+        var buffer_mapped = tensor.buffer.getMappedRange(u8, 0, N);
+        std.mem.copy(u8, buffer_mapped.?, data);
+        tensor.buffer.unmap();
+
+        var lookup_buffer_mapped = tensor.lookup_buffer.getMappedRange(f16, 0, TableSize);
+        std.mem.copy(f16, lookup_buffer_mapped.?, lookup_table);
+        tensor.lookup_buffer.unmap();
 
         return tensor;
     }
