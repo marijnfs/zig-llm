@@ -34,7 +34,7 @@ pub const ModelWeights = struct {
     final_rms_weight: *Tensor,
     freqs: *Tensor,
 
-    final_class_weights: ?*Tensor,
+    // final_class_weights: ?*Tensor,
 
     // - rms final weight = dim
     // - freq real = seq_len * head_size / 2

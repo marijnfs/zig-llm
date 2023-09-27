@@ -394,7 +394,7 @@ pub const LookupOperator = struct {
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{
-            .X = params.N,
+            .X = params.N / 1024,
             .Y = 1,
             .Z = 1,
         };

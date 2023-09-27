@@ -205,7 +205,6 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
         .output_embedding = output_embedding,
         .final_rms_weight = final_rms_weight,
         .freqs = freqs,
-        .final_class_weights = null,
     };
 
     return model_weights;
@@ -391,7 +390,6 @@ pub fn read_model_weights_karpathy_legacy(base_allocator: std.mem.Allocator, rea
         .output_embedding = token_embedding,
         .final_rms_weight = final_rms_weight,
         .freqs = undefined,
-        .final_class_weights = null,
     };
 
     return model_weights;

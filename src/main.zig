@@ -22,7 +22,17 @@ pub const log_level: std.log.Level = .info;
 pub fn init(app: *App) !void {
     const allocator = gpa.allocator();
 
-    try core.init(.{});
+    try core.init(.{
+        .required_limits = gpu.Limits{
+            .max_buffer_size = 1 << 30,
+            .max_uniform_buffer_binding_size = 1 << 30,
+            .max_storage_buffer_binding_size = 1 << 30,
+            .max_compute_workgroup_size_x = 1 << 10,
+            .max_compute_workgroups_per_dimension = 1 << 10,
+            .max_compute_invocations_per_workgroup = 1 << 10,
+        },
+        // .required_features = gpu.FeatureName{.shader_f16},
+    });
     app.* = .{};
 
     const params = comptime clap.parseParamsComptime(
@@ -153,20 +163,25 @@ pub fn init(app: *App) !void {
     // -> rmsnorm with weights again
     // -> matmul with class weights toward vocab size
 
-    var L: usize = args.length orelse @as(usize, @intCast(config.seq_len));
+    const L: usize = args.length orelse @as(usize, @intCast(config.seq_len));
+    const L_cache = if (mode == .Uncached) L else 1;
 
     _ = random;
-    // var random_values = try allocator.alloc(f32, L * dim);
+
+    // var random_values = try allocator.alloc(f32, dim * L_cache);
     // defer allocator.free(random_values);
 
     // for (random_values) |*v| {
     //     v.* = (random.float(f32) * 2 - 1) * 0.25;
     // }
 
+    // var x = try Tensor.init_from_data_f32(allocator, &[_]usize{ dim, L_cache }, .Storage, random_values);
+
     // L cache is the size of the caches during computation
-    const L_cache = if (mode == .Uncached) L else 1;
     //
+
     var x = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
+
     var x_copy = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
     var q = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
@@ -235,7 +250,10 @@ pub fn init(app: *App) !void {
         var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
 
         const command_encoder = core.device.createCommandEncoder(null);
-        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
+
+        _ = tokens_tensor;
+        _ = embed_operator;
+        // embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
@@ -290,8 +308,8 @@ pub fn init(app: *App) !void {
         rmsnorm_operator.execute(x, command_encoder);
         scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
 
-        const final_weights = model_weights.final_class_weights orelse model_weights.token_embedding;
-        tmat_operator.execute(final_weights, x, logits, null, command_encoder);
+        // const final_weights = model_weights.output_embedding orelse model_weights.token_embedding;
+        tmat_operator.execute(model_weights.output_embedding, x, logits, null, command_encoder);
 
         argmax_operator.execute(max_index, logits, command_encoder);
 
