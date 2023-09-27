@@ -107,7 +107,37 @@ pub const Tensor = struct {
         return tensor;
     }
 
-    pub fn init_from_data(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []const f32) !*Tensor {
+    pub fn init_from_data_f16(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []const f16) !*Tensor {
+        var tensor = try allocator.create(Tensor);
+        _ = tensor_type;
+
+        var N: usize = 1;
+        for (shape) |dim| {
+            N *= dim;
+        }
+        tensor.* = .{
+            .N = N,
+            .shape = try allocator.dupe(usize, shape),
+            .buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
+                .label = "buffer",
+                .usage = .{
+                    .storage = true,
+                    .copy_dst = true,
+                    .copy_src = true,
+                },
+                .size = N * @sizeOf(f16),
+                .mapped_at_creation = .true,
+            }),
+        };
+
+        var buffer_mapped = tensor.buffer.getMappedRange(f16, 0, N);
+        std.mem.copy(f16, buffer_mapped.?, data);
+        tensor.buffer.unmap();
+
+        return tensor;
+    }
+
+    pub fn init_from_data_f32(allocator: std.mem.Allocator, shape: []const usize, tensor_type: Type, data: []const f32) !*Tensor {
         var tensor = try allocator.create(Tensor);
         _ = tensor_type;
 
@@ -203,9 +233,9 @@ pub const Tensor = struct {
         std.mem.copy(u8, buffer_mapped.?, data);
         tensor.buffer.unmap();
 
-        var lookup_buffer_mapped = tensor.lookup_buffer.getMappedRange(f16, 0, TableSize);
+        var lookup_buffer_mapped = tensor.lookup_buffer.?.getMappedRange(f16, 0, TableSize);
         std.mem.copy(f16, lookup_buffer_mapped.?, lookup_table);
-        tensor.lookup_buffer.unmap();
+        tensor.lookup_buffer.?.unmap();
 
         return tensor;
     }

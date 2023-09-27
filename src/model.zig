@@ -30,9 +30,10 @@ pub const ModelWeights = struct {
     layers: std.ArrayList(LayerWeights),
 
     token_embedding: *Tensor,
+    output_embedding: *Tensor,
     final_rms_weight: *Tensor,
-    freq_real: *Tensor,
-    freq_img: *Tensor,
+    freqs: *Tensor,
+
     final_class_weights: ?*Tensor,
 
     // - rms final weight = dim
