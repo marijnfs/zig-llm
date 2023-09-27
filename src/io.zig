@@ -144,10 +144,9 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
 
     var output_embedding = try read_f16(base_allocator, &[_]usize{ dim, vocab_size }, reader, &weight_read_buffer);
 
-    var final_rms_weight = try read_f16(base_allocator, &[_]usize{ dim, vocab_size }, reader, &weight_read_buffer);
+    var final_rms_weight = try read_f16(base_allocator, &[_]usize{dim}, reader, &weight_read_buffer);
 
     const n_freqs = head_size / 2;
-
     var freqs = try read_f16(base_allocator, &[_]usize{n_freqs}, reader, &weight_read_buffer);
 
     // Start reading weights
@@ -171,7 +170,7 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
 
     // output_weight
     for (layer_weights.items) |*layer| {
-        layer.query_weight = try read_q8(base_allocator, &[_]usize{ dim, dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.output_weight = try read_q8(base_allocator, &[_]usize{ dim, dim }, reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // w1
