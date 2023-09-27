@@ -251,9 +251,9 @@ pub fn init(app: *App) !void {
 
         const command_encoder = core.device.createCommandEncoder(null);
 
-        _ = tokens_tensor;
-        _ = embed_operator;
-        // embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
+        // _ = tokens_tensor;
+        // _ = embed_operator;
+        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
