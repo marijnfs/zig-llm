@@ -123,6 +123,7 @@ for general_weights in ['tok_embeddings.weight', 'output.weight', 'norm.weight',
     weights = model_weights[general_weights]
     serialize_fp16(output_file, weights)
 
+save_layers_lookup_q8(output_file, n_layers, model_weights, "layers.{layer}.attention.wq.weight")
 save_layers_lookup_q8(output_file, n_layers, model_weights, "layers.{layer}.attention.wk.weight")
 save_layers_lookup_q8(output_file, n_layers, model_weights, "layers.{layer}.attention.wv.weight")
 save_layers_lookup_q8(output_file, n_layers, model_weights, "layers.{layer}.attention.wo.weight")
