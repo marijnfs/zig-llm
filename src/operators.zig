@@ -115,9 +115,9 @@ pub const AttentionOperator = struct {
         const slate_bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline_slate.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, slate.buffer, 0, slate.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, K.buffer, 0, K.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(2, Q.buffer, 0, Q.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, slate.buffer, 0, slate.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, K.buffer, 0, K.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, Q.buffer, 0, Q.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -126,7 +126,7 @@ pub const AttentionOperator = struct {
         const softmax_bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline_softmax_value.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, slate.buffer, 0, slate.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, slate.buffer, 0, slate.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -135,9 +135,9 @@ pub const AttentionOperator = struct {
         const aggregate_bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline_aggregate_value.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, V.buffer, 0, V.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(2, slate.buffer, 0, slate.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, V.buffer, 0, V.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, slate.buffer, 0, slate.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -236,7 +236,7 @@ pub const RMSNormOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -312,8 +312,8 @@ pub const AddOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -385,9 +385,9 @@ pub const LookupOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, source.buffer, 0, source.N * @sizeOf(u8)),
-                gpu.BindGroup.Entry.buffer(2, source.lookup_buffer.?, 0, 256 * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(2, source.lookup_buffer.?, 0, 256 * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -465,8 +465,8 @@ pub const TransposeOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -539,7 +539,7 @@ pub const ArgmaxOperator = struct {
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, max_index.buffer, 0, max_index.N * @sizeOf(u32)),
-                gpu.BindGroup.Entry.buffer(1, values.buffer, 0, values.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(1, values.buffer, 0, values.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -615,9 +615,9 @@ pub const EmbedOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, tokens.buffer, 0, tokens.N * @sizeOf(u32)),
-                gpu.BindGroup.Entry.buffer(2, embeddings.buffer, 0, embeddings.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(2, embeddings.buffer, 0, embeddings.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -693,8 +693,8 @@ pub const ElMulOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -766,8 +766,8 @@ pub const CopyOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -843,8 +843,8 @@ pub const ScaleOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -917,7 +917,7 @@ pub const SILUOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -948,7 +948,7 @@ pub const RopeOperator = struct {
         dim: u32,
         L: u32,
         n_heads: u32,
-        base_freq: f16,
+        base_freq: f32,
         l_offset: u32,
         write_l_offset: u32,
     };
@@ -1001,7 +1001,7 @@ pub const RopeOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, k.buffer, 0, k.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, k.buffer, 0, k.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -1084,9 +1084,9 @@ pub const MatOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, left.buffer, 0, left.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(2, right.buffer, 0, right.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
@@ -1178,9 +1178,9 @@ pub const TransposeMatOperator = struct {
         const bindings = core.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(1, left.buffer, 0, left.N * @sizeOf(f16)),
-                gpu.BindGroup.Entry.buffer(2, right.buffer, 0, right.N * @sizeOf(f16)),
+                gpu.BindGroup.Entry.buffer(0, output.buffer, 0, output.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, left.buffer, 0, left.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, right.buffer, 0, right.N * @sizeOf(f32)),
                 gpu.BindGroup.Entry.buffer(3, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));

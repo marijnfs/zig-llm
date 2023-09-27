@@ -5,7 +5,7 @@ struct Params {
   L : u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> M : array<f16>; //L * dim
+@binding(0) @group(0) var<storage, read_write> M : array<f32>; //L * dim
 @binding(1) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1)
@@ -24,7 +24,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     sum += value * value;
   }
 
-  sum /= f16(params.dim);
+  sum /= f32(params.dim);
   sum += 1.0e-5; //for stability
   let factor = 1.0 / sqrt(sum);
   for (var k : u32 = 0u; k < params.dim; k = k + 1u) {

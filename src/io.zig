@@ -120,7 +120,7 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
             try weight_buffer.resize(N);
             _ = try reader_.readAll(std.mem.sliceAsBytes(weight_buffer.items));
 
-            return try Tensor.init_from_data_f16(allocator, shape, .Storage, weight_buffer.items);
+            return try Tensor.init_from_data_f16_to_f32(allocator, shape, .Storage, weight_buffer.items);
         }
     }.f;
 
@@ -136,7 +136,7 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
             _ = try reader_.readAll(std.mem.sliceAsBytes(table_buffer.items));
             _ = try reader_.readAll(std.mem.sliceAsBytes(lookups_buffer.items));
 
-            return try Tensor.init_from_data_q8_lookup(allocator, shape, .Storage, lookups_buffer.items, table_buffer.items);
+            return try Tensor.init_from_data_q8_lookup_to_f32(allocator, shape, .Storage, lookups_buffer.items, table_buffer.items);
         }
     }.f;
 

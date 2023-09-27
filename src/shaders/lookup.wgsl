@@ -3,9 +3,9 @@ struct Params {
   N: u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> output : array<f16>;
+@binding(0) @group(0) var<storage, read_write> output : array<f32>;
 @binding(1) @group(0) var<storage, read_write> values : array<u8>;
-@binding(2) @group(0) var<storage, read> lookup_table : array<f16>;
+@binding(2) @group(0) var<storage, read> lookup_table : array<f32>;
 @binding(3) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(64)

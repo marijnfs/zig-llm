@@ -166,31 +166,31 @@ pub fn init(app: *App) !void {
     // L cache is the size of the caches during computation
     const L_cache = if (mode == .Uncached) L else 1;
     //
-    var x = try Tensor.init_f16(allocator, &[_]usize{ dim, L_cache }, .Storage);
-    var x_copy = try Tensor.init_f16(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var x = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var x_copy = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
-    var q = try Tensor.init_f16(allocator, &[_]usize{ dim, L_cache }, .Storage);
-    var k = try Tensor.init_f16(allocator, &[_]usize{ kv_dim, L_cache }, .Storage);
-    var v = try Tensor.init_f16(allocator, &[_]usize{ kv_dim, L_cache }, .Storage);
+    var q = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var k = try Tensor.init_f32(allocator, &[_]usize{ kv_dim, L_cache }, .Storage);
+    var v = try Tensor.init_f32(allocator, &[_]usize{ kv_dim, L_cache }, .Storage);
 
     var k_caches = std.ArrayList(*Tensor).init(allocator);
     var v_caches = std.ArrayList(*Tensor).init(allocator);
 
     if (mode == .Cached) {
         for (model_weights.layers.items) |_| {
-            try k_caches.append(try Tensor.init_f16(allocator, &[_]usize{ kv_dim, L }, .Storage));
-            try v_caches.append(try Tensor.init_f16(allocator, &[_]usize{ kv_dim, L }, .Storage));
+            try k_caches.append(try Tensor.init_f32(allocator, &[_]usize{ kv_dim, L }, .Storage));
+            try v_caches.append(try Tensor.init_f32(allocator, &[_]usize{ kv_dim, L }, .Storage));
         }
     }
 
-    var attention_out = try Tensor.init_f16(allocator, &[_]usize{ dim, L_cache }, .Storage);
-    var out = try Tensor.init_f16(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var attention_out = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var out = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
-    var w1_slate = try Tensor.init_f16(allocator, &[_]usize{ hidden_dim, L_cache }, .Storage);
-    var w3_slate = try Tensor.init_f16(allocator, &[_]usize{ hidden_dim, L_cache }, .Storage);
+    var w1_slate = try Tensor.init_f32(allocator, &[_]usize{ hidden_dim, L_cache }, .Storage);
+    var w3_slate = try Tensor.init_f32(allocator, &[_]usize{ hidden_dim, L_cache }, .Storage);
 
-    var logits = try Tensor.init_f16(allocator, &[_]usize{ vocab_size, L_cache }, .Storage);
-    var slate = try Tensor.init_f16(allocator, &[_]usize{ L, L_cache, n_heads }, .Storage);
+    var logits = try Tensor.init_f32(allocator, &[_]usize{ vocab_size, L_cache }, .Storage);
+    var slate = try Tensor.init_f32(allocator, &[_]usize{ L, L_cache, n_heads }, .Storage);
 
     var max_index = try Tensor.init_u32(allocator, &[_]usize{L_cache}, .Storage);
 
@@ -199,15 +199,15 @@ pub fn init(app: *App) !void {
     var last_predicted_token: u32 = 1;
 
     // Weight holders to uncompress into
-    var query_weight = try Tensor.init_f16(allocator, &[_]usize{ dim, dim }, .Storage);
-    var key_weight = try Tensor.init_f16(allocator, &[_]usize{ kv_dim, dim }, .Storage);
-    var value_weight = try Tensor.init_f16(allocator, &[_]usize{ kv_dim, dim }, .Storage);
+    var query_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, dim }, .Storage);
+    var key_weight = try Tensor.init_f32(allocator, &[_]usize{ kv_dim, dim }, .Storage);
+    var value_weight = try Tensor.init_f32(allocator, &[_]usize{ kv_dim, dim }, .Storage);
 
-    var output_weight = try Tensor.init_f16(allocator, &[_]usize{ dim, dim }, .Storage);
+    var output_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, dim }, .Storage);
 
-    var w1_weight = try Tensor.init_f16(allocator, &[_]usize{ dim, hidden_dim }, .Storage);
-    var w2_weight = try Tensor.init_f16(allocator, &[_]usize{ hidden_dim, dim }, .Storage);
-    var w3_weight = try Tensor.init_f16(allocator, &[_]usize{ dim, hidden_dim }, .Storage);
+    var w1_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, hidden_dim }, .Storage);
+    var w2_weight = try Tensor.init_f32(allocator, &[_]usize{ hidden_dim, dim }, .Storage);
+    var w3_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, hidden_dim }, .Storage);
 
     _ = try writer.writeAll("Prediction:\n");
     for (0..L) |token_idx| {

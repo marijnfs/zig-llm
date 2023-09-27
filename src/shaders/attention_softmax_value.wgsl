@@ -17,7 +17,7 @@ struct Params {
   K_max: u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> slate : array<f16>; //L * L
+@binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L
 @binding(1) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1)

@@ -4,8 +4,8 @@ struct Params {
   L: u32,
 };
 
-@binding(0) @group(0) var<storage, read_write> left : array<f16>;
-@binding(1) @group(0) var<storage, read> right : array<f16>;
+@binding(0) @group(0) var<storage, read_write> left : array<f32>;
+@binding(1) @group(0) var<storage, read> right : array<f32>;
 @binding(2) @group(0) var<uniform> params : Params;
 
 @compute @workgroup_size(1)
