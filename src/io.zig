@@ -53,14 +53,14 @@ pub fn read_model_weights(base_allocator: std.mem.Allocator, path: []const u8) !
     return error.ModelFormatNotSupported;
 }
 
-pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytype) !*ModelWeights {
+pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: anytype) !*ModelWeights {
     // Setup arena
     var arena = std.heap.ArenaAllocator.init(base_allocator);
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
     // Setup buffered reader
-    var model_file_buffered = std.io.bufferedReader(reader);
+    var model_file_buffered = std.io.bufferedReader(base_reader);
     var model_reader = model_file_buffered.reader();
 
     // Reading our version header
@@ -105,11 +105,6 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
     const kv_dim = n_kv_heads * head_size;
 
     // Read token embedding
-
-    try weight_read_buffer.resize(vocab_size * dim);
-    const read = try model_reader.readAll(std.mem.sliceAsBytes(weight_read_buffer.items));
-    std.log.debug("read: {}", .{read});
-
     const read_f16 = struct {
         fn f(allocator: std.mem.Allocator, shape: []const usize, reader_: anytype, weight_buffer: anytype) !*Tensor {
             var N: usize = 1;
@@ -140,14 +135,14 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
         }
     }.f;
 
-    var token_embedding = try read_f16(base_allocator, &[_]usize{ dim, vocab_size }, reader, &weight_read_buffer);
+    var token_embedding = try read_f16(base_allocator, &[_]usize{ dim, vocab_size }, model_reader, &weight_read_buffer);
 
-    var output_embedding = try read_f16(base_allocator, &[_]usize{ dim, vocab_size }, reader, &weight_read_buffer);
+    var output_embedding = try read_f16(base_allocator, &[_]usize{ dim, vocab_size }, model_reader, &weight_read_buffer);
 
-    var final_rms_weight = try read_f16(base_allocator, &[_]usize{dim}, reader, &weight_read_buffer);
+    var final_rms_weight = try read_f16(base_allocator, &[_]usize{dim}, model_reader, &weight_read_buffer);
 
     const n_freqs = head_size / 2;
-    var freqs = try read_f16(base_allocator, &[_]usize{n_freqs}, reader, &weight_read_buffer);
+    var freqs = try read_f16(base_allocator, &[_]usize{n_freqs}, model_reader, &weight_read_buffer);
 
     // Start reading weights
     var layer_weights = std.ArrayList(model.LayerWeights).init(base_allocator);
@@ -155,47 +150,47 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, reader: anytyp
 
     // query_weight
     for (layer_weights.items) |*layer| {
-        layer.query_weight = try read_q8(base_allocator, &[_]usize{ dim, dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.query_weight = try read_q8(base_allocator, &[_]usize{ dim, dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // key_weight
     for (layer_weights.items) |*layer| {
-        layer.key_weight = try read_q8(base_allocator, &[_]usize{ kv_dim, dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.key_weight = try read_q8(base_allocator, &[_]usize{ kv_dim, dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // value_weight
     for (layer_weights.items) |*layer| {
-        layer.value_weight = try read_q8(base_allocator, &[_]usize{ kv_dim, dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.value_weight = try read_q8(base_allocator, &[_]usize{ kv_dim, dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // output_weight
     for (layer_weights.items) |*layer| {
-        layer.output_weight = try read_q8(base_allocator, &[_]usize{ dim, dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.output_weight = try read_q8(base_allocator, &[_]usize{ dim, dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // w1
     for (layer_weights.items) |*layer| {
-        layer.w1 = try read_q8(base_allocator, &[_]usize{ dim, hidden_dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.w1 = try read_q8(base_allocator, &[_]usize{ dim, hidden_dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // w2
     for (layer_weights.items) |*layer| {
-        layer.w2 = try read_q8(base_allocator, &[_]usize{ hidden_dim, dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.w2 = try read_q8(base_allocator, &[_]usize{ hidden_dim, dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // w3
     for (layer_weights.items) |*layer| {
-        layer.w3 = try read_q8(base_allocator, &[_]usize{ dim, hidden_dim }, reader, &q8_read_buffer, &weight_read_buffer);
+        layer.w3 = try read_q8(base_allocator, &[_]usize{ dim, hidden_dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // rms_attention
     for (layer_weights.items) |*layer| {
-        layer.rms_attention = try read_f16(base_allocator, &[_]usize{dim}, reader, &weight_read_buffer);
+        layer.rms_attention = try read_f16(base_allocator, &[_]usize{dim}, model_reader, &weight_read_buffer);
     }
 
     // rms_ffn
     for (layer_weights.items) |*layer| {
-        layer.rms_ffn = try read_f16(base_allocator, &[_]usize{dim}, reader, &weight_read_buffer);
+        layer.rms_ffn = try read_f16(base_allocator, &[_]usize{dim}, model_reader, &weight_read_buffer);
     }
 
     model_weights.* = .{

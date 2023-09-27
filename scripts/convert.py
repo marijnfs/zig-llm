@@ -54,9 +54,14 @@ def serialize_lookup_q8(file, tensor):
     mid_indices.insert(0,0)
 
     lookup_values = np.zeros(N, dtype=np.uint8)
-    for i, start, end in zip(range(256), mid_indices[0:256], mid_indices[1:256+1]):
+
+    for i in range(256):
+        start = i * 2 * N // 512
+        end = (i + 1) * 2 * N // 512
+
         for index in range(start, end):
-            lookup_values[index] = i
+            target_index = sorted_indices[index]
+            lookup_values[target_index] = i
 
     packed_lookup_table = struct.pack(f'{len(lookup_table)}e', *lookup_table)
     packed_lookup_values = struct.pack(f'{len(lookup_values)}B', *lookup_values)
@@ -89,11 +94,9 @@ def save_header(out_file, model, params):
 
     hidden_dim = model['layers.0.feed_forward.w1.weight'].shape[1]
     
-    print(params)
     n_kv_heads = params['n_heads']
     vocab_size = model['tok_embeddings.weight'].shape[0]
 
-    print("hidden dim: ", hidden_dim)
     max_seq_len = 1024 #made up
 
     n_kv_heads = params['n_kv_heads'] if 'n_kv_heads' in params else params['n_heads']
@@ -106,6 +109,7 @@ def save_header(out_file, model, params):
 
 config_file = open(config_path)
 model_params = ujson.load(config_file)
+print(F"model params: {model_params}")
 
 model_weights = torch.load(model_path)
 

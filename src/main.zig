@@ -31,7 +31,7 @@ pub fn init(app: *App) !void {
             .max_compute_workgroups_per_dimension = 1 << 10,
             .max_compute_invocations_per_workgroup = 1 << 10,
         },
-        // .required_features = gpu.FeatureName{.shader_f16},
+        // .required_features = &[_]gpu.FeatureName{.shader_f16},
     });
     app.* = .{};
 
