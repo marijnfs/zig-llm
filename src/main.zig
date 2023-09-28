@@ -25,7 +25,6 @@ pub fn init(app: *App) !void {
     try core.init(.{
         .required_limits = gpu.Limits{
             .max_buffer_size = 1 << 30,
-            .max_uniform_buffer_binding_size = 1 << 30,
             .max_storage_buffer_binding_size = 1 << 30,
             .max_compute_workgroup_size_x = 1 << 10,
             .max_compute_workgroups_per_dimension = 1 << 10,

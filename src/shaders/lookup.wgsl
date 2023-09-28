@@ -21,10 +21,8 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let byte_index = l % 4;
   let value = values[int_index];
 
-
-
   var byte_value: u32 = 0;
-  switch (value) {
+  switch (byte_index) {
     case 0: {
       byte_value = (value & 0xFFu);
     }
