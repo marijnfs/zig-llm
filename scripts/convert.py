@@ -92,7 +92,7 @@ def save_header(out_file, model, params):
     out_file.write(struct.pack('I', major_version))
     out_file.write(struct.pack('I', minor_version))
 
-    hidden_dim = model['layers.0.feed_forward.w1.weight'].shape[1]
+    hidden_dim = model['layers.0.feed_forward.w1.weight'].shape[0]
     
     n_kv_heads = params['n_heads']
     vocab_size = model['tok_embeddings.weight'].shape[0]
