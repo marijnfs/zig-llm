@@ -43,15 +43,15 @@ def serialize_fp16(file, tensor):
 def serialize_lookup_q8(file, tensor):
     flat = tensor.detach().cpu().view(-1).to(torch.float16).numpy().astype(np.float16)
 
+    print("first val:", flat[0])
+
     sorted_indices = np.argsort(flat)
     N = len(flat)
 
     # We sorted the values, now we'll mentally divide the sequence in 256 sequences and take the median value (seems the most fair).
     # this means taking indices (x * 2 + 1) * len(values) / 512
     mid_indices = [((x * 2 + 1) * N) // 512 for x in range(256)]
-    lookup_table = np.array([flat[i] for i in mid_indices], dtype=np.float16)
-
-    mid_indices.insert(0,0)
+    lookup_table = np.array([flat[sorted_indices[i]] for i in mid_indices], dtype=np.float16)
 
     lookup_values = np.zeros(N, dtype=np.uint8)
 
