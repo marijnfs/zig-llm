@@ -41,27 +41,6 @@ def serialize_fp16(file, tensor):
     b = struct.pack(f'{len(flat)}e', *flat)
     file.write(b)
 
-def kmeans_quantization(data, num_clusters, num_iterations=100):
-    # Randomly initialize cluster centroids from the data points
-    cluster_indices = np.random.choice(len(data), num_clusters, replace=False)
-    centroids = data[cluster_indices]
-
-    for iteration in range(num_iterations):
-        print("iteration", iteration)
-        # Assign each data point to the nearest cluster
-        distances = np.linalg.norm(data[:, np.newaxis] - centroids, axis=2)
-        assignments = np.argmin(distances, axis=1)
-
-        # Update cluster centroids
-        for i in range(num_clusters):
-            if np.any(assignments == i):
-                centroids[i] = np.mean(data[assignments == i], axis=0)
-
-    # Quantize the data to the nearest centroid
-    quantized_data = centroids[assignments]
-
-    return quantized_data, centroids
-
 
 # Serialize with 8bit lookup table
 def serialize_lookup_q8(file, tensor):
