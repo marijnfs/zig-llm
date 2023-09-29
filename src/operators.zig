@@ -243,7 +243,7 @@ pub const RMSNormOperator = struct {
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{
-            .X = params.L,
+            .X = div_ceil(params.L, 64),
             .Y = 1,
             .Z = 1,
         };
@@ -394,7 +394,7 @@ pub const LookupOperator = struct {
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{
-            .X = params.N / 1024,
+            .X = div_ceil(params.N, 1024),
             .Y = 1,
             .Z = 1,
         };
@@ -851,8 +851,8 @@ pub const ScaleOperator = struct {
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{
-            .X = params.L,
-            .Y = params.dim,
+            .X = params.dim,
+            .Y = params.L,
             .Z = 1,
         };
 
@@ -980,6 +980,7 @@ pub const RopeOperator = struct {
     pub fn execute(
         self: *RopeOperator,
         k: *Tensor,
+        freqs: *Tensor,
         n_heads: usize,
         l_offset: ?usize,
         write_l_offset: ?usize,
@@ -1002,7 +1003,8 @@ pub const RopeOperator = struct {
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, k.buffer, 0, k.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
+                gpu.BindGroup.Entry.buffer(1, freqs.buffer, 0, freqs.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
         defer bindings.release();
@@ -1136,7 +1138,6 @@ pub const TransposeMatOperator = struct {
         operator.* = .{
             .shader_module = shader_module,
             .pipeline = pipeline,
-
             .param_buffer = core.device.createBuffer(&gpu.Buffer.Descriptor{
                 .label = "param_buffer",
                 .usage = .{ .uniform = true, .copy_dst = true },
@@ -1187,8 +1188,8 @@ pub const TransposeMatOperator = struct {
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{
-            .X = div_ceil(params.M, 8),
-            .Y = div_ceil(params.N, 8),
+            .X = div_ceil(params.M, 16),
+            .Y = div_ceil(params.N, 16),
             .Z = 1,
         };
 

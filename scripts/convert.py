@@ -3,6 +3,8 @@ import torch
 import ujson
 import struct
 import numpy as np
+ 
+from sklearn.cluster import KMeans
 
 model_path = sys.argv[1]
 config_path = sys.argv[2]
@@ -39,29 +41,129 @@ def serialize_fp16(file, tensor):
     b = struct.pack(f'{len(flat)}e', *flat)
     file.write(b)
 
+def kmeans_quantization(data, num_clusters, num_iterations=100):
+    # Randomly initialize cluster centroids from the data points
+    cluster_indices = np.random.choice(len(data), num_clusters, replace=False)
+    centroids = data[cluster_indices]
+
+    for iteration in range(num_iterations):
+        print("iteration", iteration)
+        # Assign each data point to the nearest cluster
+        distances = np.linalg.norm(data[:, np.newaxis] - centroids, axis=2)
+        assignments = np.argmin(distances, axis=1)
+
+        # Update cluster centroids
+        for i in range(num_clusters):
+            if np.any(assignments == i):
+                centroids[i] = np.mean(data[assignments == i], axis=0)
+
+    # Quantize the data to the nearest centroid
+    quantized_data = centroids[assignments]
+
+    return quantized_data, centroids
+
+
 # Serialize with 8bit lookup table
 def serialize_lookup_q8(file, tensor):
     flat = tensor.detach().cpu().view(-1).to(torch.float16).numpy().astype(np.float16)
+    flat_2d = flat.reshape(-1, 1)
 
     print("first val:", flat[0])
 
     sorted_indices = np.argsort(flat)
     N = len(flat)
 
-    # We sorted the values, now we'll mentally divide the sequence in 256 sequences and take the median value (seems the most fair).
-    # this means taking indices (x * 2 + 1) * len(values) / 512
-    mid_indices = [((x * 2 + 1) * N) // 512 for x in range(256)]
-    lookup_table = np.array([flat[sorted_indices[i]] for i in mid_indices], dtype=np.float16)
+    # lookup_table = np.zeros(256, dtype=np.float16) 
+    # lookup_values = np.zeros(N, dtype=np.uint8)
 
-    lookup_values = np.zeros(N, dtype=np.uint8)
+    kmean_iterations = 2 #make lower for faster (but worse) results
+    init_range = np.linspace(flat.min(), flat.max(), 256, dtype=np.float16).reshape(-1, 1)
+    print("fitting")
+    kmeans = KMeans(n_clusters=256, max_iter=kmean_iterations, n_init=1, init=init_range).fit(flat_2d)
+    print("done")
 
-    for i in range(256):
-        start = i * 2 * N // 512
-        end = (i + 1) * 2 * N // 512
+    lookup_values = kmeans.predict(flat_2d).flatten().astype(np.uint8)
+    lookup_table = kmeans.cluster_centers_.flatten().astype(np.float16)
 
-        for index in range(start, end):
-            target_index = sorted_indices[index]
-            lookup_values[target_index] = i
+    # lookup_table = k_means.cluster_centers_.astype(np.float16)
+    # lookup_values = k_means.predict(flat_2d).astype(np.uint8)
+
+    # for i in range(256):
+    #     start = i * N // 256
+    #     end = (i + 1)  * N // 256
+
+    #     total = 0.0;
+    #     for index in range(start, end):
+    #         total += flat[sorted_indices[index]]
+    #     mean_value = total / (end - start)
+    #     lookup_table[i] = mean_value
+
+    # print(lookup_table)
+    # for i in range(256):
+    #     idx = i * N // 255
+    #     if idx >= N:
+    #         idx = N - 1
+    #     lookup_table[i] = flat[sorted_indices[idx]]
+
+    # min_val = np.min(flat)
+    # max_val = np.max(flat)
+
+    # for i in range(256):
+    #     idx = i * N // 255
+    #     if idx >= N:
+    #         idx = N - 1
+    #     lookup_table[i] = min_val + (max_val - min_val) * (i / 255)
+
+    # for _ in range(1):
+    #     lookups = np.searchsorted(lookup_table, flat)
+
+    #     for (i, lookup) in zip(range(N), lookups):
+    #         idx = lookup
+    #         if idx == len(lookup_table):
+    #             idx = idx - 1
+
+    #         val = flat[i]
+    #         if idx > 0:
+    #             if abs(lookup_table[idx - 1] - val) < abs(lookup_table[idx] - val):
+    #                 idx = idx - 1
+
+    #         lookup_values[i] = idx;
+
+        # lookup_table_sum = np.zeros(256, dtype=np.float32) 
+        # lookup_table_count = np.zeros(256, dtype=np.uint32)
+
+        # for i in range(N):
+        #     lookup = lookup_values[i]
+        #     lookup_table_sum[lookup] += flat[i]
+        #     lookup_table_count[lookup] += 1
+
+        # for n in range(len(lookup_table_sum)):
+        #     if lookup_table_count[n] == 0: continue
+        #     lookup_table[n] = lookup_table_sum[n] / lookup_table_count[n]
+
+    # for i in range(256):
+    #     start = i * N // 256
+    #     end = (i + 1)  * N // 256
+
+        # total = 0.0;
+        # for index in range(start, end):
+        #     total += flat[sorted_indices[index]]
+        # mean_value = total / (end - start)
+        # lookup_table[i] = mean_value
+
+        # for index in range(start, end):
+        #     target_index = sorted_indices[index]
+        #     lookup_values[target_index] = i
+
+    # Verify differences
+    # max_diff = 0
+    # for i in range(N):
+    #     real_val = flat[i]
+    #     lookup_val = lookup_table[lookup_values[i]]
+    #     absdiff = abs(real_val - lookup_val)
+    #     if absdiff > max_diff:
+    #         print(i, real_val, lookup_val, real_val - lookup_val)
+    #         max_diff = absdiff
 
     packed_lookup_table = struct.pack(f'{len(lookup_table)}e', *lookup_table)
     packed_lookup_values = struct.pack(f'{len(lookup_values)}B', *lookup_values)

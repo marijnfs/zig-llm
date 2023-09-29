@@ -8,7 +8,7 @@ struct Params {
 @binding(0) @group(0) var<storage, read_write> M : array<f32>; //L * dim
 @binding(1) @group(0) var<uniform> params : Params;
 
-@compute @workgroup_size(1)
+@compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let l : u32 = GlobalInvocationID.x; //sequence number
   
@@ -26,7 +26,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
   sum /= f32(params.dim);
   sum += 1.0e-5; //for stability
-  let factor = 1.0 / sqrt(sum);
+  let factor = 1.0f / sqrt(sum);
   for (var k : u32 = 0u; k < params.dim; k = k + 1u) {
     M[l * params.dim + k] *= factor;
   }

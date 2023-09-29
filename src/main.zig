@@ -134,6 +134,10 @@ pub fn init(app: *App) !void {
     const lookup_operator = try operators.LookupOperator.init(allocator);
     const lookup_operator_1 = try operators.LookupOperator.init(allocator);
     const lookup_operator_2 = try operators.LookupOperator.init(allocator);
+    const lookup_operator_3 = try operators.LookupOperator.init(allocator);
+    const lookup_operator_4 = try operators.LookupOperator.init(allocator);
+    const lookup_operator_5 = try operators.LookupOperator.init(allocator);
+    const lookup_operator_6 = try operators.LookupOperator.init(allocator);
 
     // const copy_operator = try operators.CopyOperator.init(allocator);
     // const transpose_operator = try operators.TransposeOperator.init(allocator);
@@ -248,25 +252,36 @@ pub fn init(app: *App) !void {
 
         var tokens_tensor = try Tensor.init_from_tokens(allocator, embed_tokens);
 
-        const command_encoder = core.device.createCommandEncoder(null);
-
-        // _ = tokens_tensor;
-        // _ = embed_operator;
-        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
-
         const cur_idx = if (mode == .Cached) token_idx else null;
 
+        {
+            const command_encoder = core.device.createCommandEncoder(null);
+
+            // _ = tokens_tensor;
+            // _ = embed_operator;
+            embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
+
+            { //submit commands
+                var command = command_encoder.finish(null);
+                defer command.release();
+
+                core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            }
+        }
+
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
+            const command_encoder = core.device.createCommandEncoder(null);
+
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
 
             lookup_operator.execute(query_weight, layer.query_weight, command_encoder);
             lookup_operator_1.execute(key_weight, layer.key_weight, command_encoder);
-            lookup_operator_1.execute(value_weight, layer.value_weight, command_encoder);
-            lookup_operator.execute(output_weight, layer.output_weight, command_encoder);
-            lookup_operator_2.execute(w1_weight, layer.w1, command_encoder);
-            lookup_operator_2.execute(w2_weight, layer.w2, command_encoder);
-            lookup_operator_2.execute(w3_weight, layer.w3, command_encoder);
+            lookup_operator_2.execute(value_weight, layer.value_weight, command_encoder);
+            lookup_operator_3.execute(output_weight, layer.output_weight, command_encoder);
+            lookup_operator_4.execute(w1_weight, layer.w1, command_encoder);
+            lookup_operator_5.execute(w2_weight, layer.w2, command_encoder);
+            lookup_operator_6.execute(w3_weight, layer.w3, command_encoder);
 
             // copy_operator.execute(x_copy, x, command_encoder);
             x.copy_to(x_copy, command_encoder);
@@ -275,12 +290,21 @@ pub fn init(app: *App) !void {
             scale_operator.execute(x, layer.rms_attention, command_encoder);
 
             tmat_operator.execute(query_weight, x, q, null, command_encoder);
-
             tmat_operator_1.execute(key_weight, x, k_cache, cur_idx, command_encoder);
             tmat_operator_2.execute(value_weight, x, v_cache, cur_idx, command_encoder);
 
-            rope_operator.execute(k_cache, n_heads, cur_idx, cur_idx, command_encoder);
-            rope_operator_1.execute(q, n_heads, cur_idx, 0, command_encoder);
+            { //submit commands
+                var command = command_encoder.finish(null);
+                defer command.release();
+
+                core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            }
+
+            try q.read_data_to_file("q.txt");
+            if (true) unreachable;
+
+            rope_operator.execute(k_cache, model_weights.freqs, n_heads, cur_idx, cur_idx, command_encoder);
+            rope_operator_1.execute(q, model_weights.freqs, n_heads, cur_idx, 0, command_encoder);
 
             const L_k = token_idx + 1;
             attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, n_kv_heads, L_k, command_encoder);
@@ -304,23 +328,29 @@ pub fn init(app: *App) !void {
             add_operator_1.execute(x, x_copy, command_encoder);
         }
 
-        rmsnorm_operator.execute(x, command_encoder);
-        scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
+        //if (true) unreachable;
 
-        // const final_weights = model_weights.output_embedding orelse model_weights.token_embedding;
-        tmat_operator.execute(model_weights.output_embedding, x, logits, null, command_encoder);
+        {
+            const command_encoder = core.device.createCommandEncoder(null);
+            rmsnorm_operator.execute(x, command_encoder);
+            scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
 
-        argmax_operator.execute(max_index, logits, command_encoder);
+            // const final_weights = model_weights.output_embedding orelse model_weights.token_embedding;
+            //tmat_operator.execute(model_weights.token_embedding, x, logits, null, command_encoder);
+            tmat_operator.execute(model_weights.output_embedding, x, logits, null, command_encoder);
 
-        { //submit commands
-            var command = command_encoder.finish(null);
-            defer command.release();
+            argmax_operator.execute(max_index, logits, command_encoder);
 
-            core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            { //submit commands
+                var command = command_encoder.finish(null);
+                defer command.release();
+
+                core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            }
         }
 
         const predicted_tokens = try max_index.read_data_tokens(allocator);
-        std.log.debug("predicted_tokens: {any}", .{predicted_tokens});
+        //std.log.info("predicted_tokens: {any}", .{predicted_tokens});
         last_predicted_token = predicted_tokens[predicted_tokens.len - 1];
         try all_predicted.append(last_predicted_token);
     }

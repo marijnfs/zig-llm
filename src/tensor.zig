@@ -323,6 +323,7 @@ pub const Tensor = struct {
 
         return tensor;
     }
+
     pub fn read_data(self: *Tensor) void {
         const command_encoder = core.device.createCommandEncoder(null);
         defer command_encoder.release();
@@ -358,7 +359,53 @@ pub const Tensor = struct {
         const output_mapped = output_buffer.getConstMappedRange(f32, 0, self.N);
         defer output_buffer.unmap();
         for (output_mapped.?, 0..) |v, idx| {
-            std.debug.print("{s}{d} ", .{ if (idx % self.shape[0] == 0) "\n" else "", v });
+            if (idx % 4 == 0)
+                std.debug.print("[{}] {d:.8}\n", .{ idx, v });
+            //std.debug.print("{s}{d:.8}\n", .{ if (idx % self.shape[0] == 0) "\n" else "", v });
+        }
+        std.debug.print("\n", .{});
+    }
+
+    pub fn read_data_to_file(self: *Tensor, path: []const u8) !void {
+        const command_encoder = core.device.createCommandEncoder(null);
+        defer command_encoder.release();
+
+        const output_buffer = self.create_matching_output_buffer();
+        defer output_buffer.release();
+
+        command_encoder.copyBufferToBuffer(self.buffer, 0, output_buffer, 0, self.N * @sizeOf(f32));
+
+        // Setup response callback
+        var response: gpu.Buffer.MapAsyncStatus = undefined;
+        const callback = (struct {
+            pub inline fn callback(ctx: *gpu.Buffer.MapAsyncStatus, status: gpu.Buffer.MapAsyncStatus) void {
+                ctx.* = status;
+            }
+        }).callback;
+
+        // Submit commands
+        var command = command_encoder.finish(null);
+        defer command.release();
+        core.queue.submit(&[_]*gpu.CommandBuffer{command});
+
+        // Create file
+        const file = try std.fs.cwd().createFile(path, .{});
+        defer file.close();
+
+        // Copy result
+        output_buffer.mapAsync(.{ .read = true }, 0, self.N * @sizeOf(f32), &response, callback);
+        while (true) {
+            if (response == gpu.Buffer.MapAsyncStatus.success) {
+                break;
+            } else {
+                core.device.tick();
+            }
+        }
+
+        const output_mapped = output_buffer.getConstMappedRange(f32, 0, self.N);
+        defer output_buffer.unmap();
+        for (output_mapped.?) |v| {
+            try file.writer().print("{d:.8} ", .{v});
         }
         std.debug.print("\n", .{});
     }
