@@ -86,11 +86,11 @@ pub const AttentionOperator = struct {
 
     pub fn execute(
         self: *AttentionOperator,
+        output: *Tensor,
         Q: *Tensor,
         K: *Tensor,
         V: *Tensor,
         slate: *Tensor,
-        output: *Tensor,
         n_heads: usize,
         n_kv_heads: usize,
         K_max: usize,
@@ -684,8 +684,8 @@ pub const ElMulOperator = struct {
         std.debug.assert(std.mem.eql(usize, left.shape, right.shape));
 
         const params: Params = .{
-            .L = @as(u32, @intCast(left.shape[1])),
             .dim = @as(u32, @intCast(left.shape[0])),
+            .L = @as(u32, @intCast(left.shape[1])),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -701,8 +701,8 @@ pub const ElMulOperator = struct {
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{
-            .X = params.L,
-            .Y = params.dim,
+            .X = div_ceil(params.dim, 64),
+            .Y = div_ceil(params.L, 4),
             .Z = 1,
         };
 
@@ -918,7 +918,7 @@ pub const SILUOperator = struct {
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, x.buffer, 0, x.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+                gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
         defer bindings.release();
@@ -1149,9 +1149,9 @@ pub const TransposeMatOperator = struct {
 
     pub fn execute(
         self: *TransposeMatOperator,
+        output: *Tensor,
         left: *Tensor,
         right: *Tensor,
-        output: *Tensor,
         target_idx: ?usize,
         command_encoder: anytype,
     ) void {

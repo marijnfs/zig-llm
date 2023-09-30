@@ -4,3 +4,4 @@
 [] update format with checksum, so we can load our own models
   - alternative: implement the latest llama2.bin format
 [] support quantized weights
+[] normalize the operator order (output first) and dim = x in most kernels

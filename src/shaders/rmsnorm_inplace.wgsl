@@ -19,15 +19,24 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   }
 
   var sum = 0.0f;
+  var c = 0.0f;
+  let m_offset = l * params.dim;
   for (var k : u32 = 0u; k < params.dim; k = k + 1u) {
-    let value =  M[l * params.dim + k];
-    sum += value * value;
+    let value =  M[m_offset + k];
+
+    let mult: f32 = value * value;
+    let y: f32 = mult - c;
+    let tmp: f32 = sum + y;
+    c = (tmp - sum) - y;
+    sum = tmp;
+
+    //sum += value * value;
   }
 
   sum /= f32(params.dim);
   sum += 1.0e-5; //for stability
   let factor = 1.0f / sqrt(sum);
   for (var k : u32 = 0u; k < params.dim; k = k + 1u) {
-    M[l * params.dim + k] *= factor;
+    M[m_offset + k] *= factor;
   }
 }

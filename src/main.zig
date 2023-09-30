@@ -185,7 +185,7 @@ pub fn init(app: *App) !void {
 
     var x = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
-    var x_copy = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
+    var xb = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
 
     var q = try Tensor.init_f32(allocator, &[_]usize{ dim, L_cache }, .Storage);
     var k = try Tensor.init_f32(allocator, &[_]usize{ kv_dim, L_cache }, .Storage);
@@ -254,23 +254,14 @@ pub fn init(app: *App) !void {
 
         const cur_idx = if (mode == .Cached) token_idx else null;
 
-        {
-            const command_encoder = core.device.createCommandEncoder(null);
+        const command_encoder = core.device.createCommandEncoder(null);
 
-            // _ = tokens_tensor;
-            // _ = embed_operator;
-            embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
-
-            { //submit commands
-                var command = command_encoder.finish(null);
-                defer command.release();
-
-                core.queue.submit(&[_]*gpu.CommandBuffer{command});
-            }
-        }
+        // _ = tokens_tensor;
+        // _ = embed_operator;
+        embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
 
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
-            const command_encoder = core.device.createCommandEncoder(null);
+            // const command_encoder = core.device.createCommandEncoder(null);
 
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
@@ -283,61 +274,122 @@ pub fn init(app: *App) !void {
             lookup_operator_5.execute(w2_weight, layer.w2, command_encoder);
             lookup_operator_6.execute(w3_weight, layer.w3, command_encoder);
 
-            // copy_operator.execute(x_copy, x, command_encoder);
-            x.copy_to(x_copy, command_encoder);
+            // copy_operator.execute(xb, x, command_encoder);
 
-            rmsnorm_operator.execute(x, command_encoder);
-            scale_operator.execute(x, layer.rms_attention, command_encoder);
+            x.copy_to(xb, command_encoder);
 
-            tmat_operator.execute(query_weight, x, q, null, command_encoder);
-            tmat_operator_1.execute(key_weight, x, k_cache, cur_idx, command_encoder);
-            tmat_operator_2.execute(value_weight, x, v_cache, cur_idx, command_encoder);
+            rmsnorm_operator.execute(xb, command_encoder);
+            scale_operator.execute(xb, layer.rms_attention, command_encoder);
 
-            { //submit commands
-                var command = command_encoder.finish(null);
-                defer command.release();
-
-                core.queue.submit(&[_]*gpu.CommandBuffer{command});
-            }
-
-            try q.read_data_to_file("q.txt");
-            if (true) unreachable;
+            tmat_operator.execute(q, query_weight, xb, null, command_encoder);
+            tmat_operator_1.execute(k_cache, key_weight, xb, cur_idx, command_encoder);
+            tmat_operator_2.execute(v_cache, value_weight, xb, cur_idx, command_encoder);
 
             rope_operator.execute(k_cache, model_weights.freqs, n_heads, cur_idx, cur_idx, command_encoder);
             rope_operator_1.execute(q, model_weights.freqs, n_heads, cur_idx, 0, command_encoder);
 
             const L_k = token_idx + 1;
-            attention_operator.execute(q, k_cache, v_cache, slate, attention_out, n_heads, n_kv_heads, L_k, command_encoder);
+            attention_operator.execute(attention_out, q, k_cache, v_cache, slate, n_heads, n_kv_heads, L_k, command_encoder);
 
-            tmat_operator_3.execute(output_weight, attention_out, out, null, command_encoder);
+            tmat_operator_3.execute(out, output_weight, attention_out, null, command_encoder);
 
-            add_operator.execute(out, x_copy, command_encoder);
+            // Add activation into x
+            add_operator.execute(x, out, command_encoder);
 
-            out.copy_to(x_copy, command_encoder);
-            // copy_operator.execute(x_copy, out, command_encoder);
+            x.copy_to(xb, command_encoder);
+            // copy_operator.execute(xb, x, command_encoder);
 
-            rmsnorm_operator_1.execute(out, command_encoder);
-            scale_operator_1.execute(out, layer.rms_ffn, command_encoder);
+            rmsnorm_operator_1.execute(xb, command_encoder);
+            scale_operator_1.execute(xb, layer.rms_ffn, command_encoder);
 
-            tmat_operator_4.execute(w1_weight, out, w1_slate, null, command_encoder);
-            tmat_operator_5.execute(w3_weight, out, w3_slate, null, command_encoder);
+            tmat_operator_4.execute(w1_slate, w1_weight, xb, null, command_encoder);
+            tmat_operator_5.execute(w3_slate, w3_weight, xb, null, command_encoder);
+
             silu_operator.execute(w1_slate, command_encoder);
 
             elmul_operator.execute(w1_slate, w3_slate, command_encoder);
-            tmat_operator_6.execute(w2_weight, w1_slate, x, null, command_encoder);
-            add_operator_1.execute(x, x_copy, command_encoder);
+
+            tmat_operator_6.execute(out, w2_weight, w1_slate, null, command_encoder);
+
+            // '        try x.read_data_to_file("x.txt");
+            //             try q.read_data_to_file("q-rope.txt");
+            //             try k_cache.read_data_to_file("k-rope.txt");
+            //             try v_cache.read_data_to_file("v.txt");
+            //             try key_weight.read_data_to_file("kw.txt");
+            //             try out.read_data_to_file("ffn-out.txt");
+            //             try attention_out.read_data_to_file("attention_out.txt");
+            //             try x.read_data_to_file("fin-out.txt");
+
+            //             if (true) unreachable;'
+
+            add_operator_1.execute(x, out, command_encoder);
+
+            // if (layer_idx == 20) {
+            //     { //submit commands
+            //         var command = command_encoder.finish(null);
+            //         defer command.release();
+
+            //         core.queue.submit(&[_]*gpu.CommandBuffer{command});
+
+            //         // try w1_weight.read_data_to_file("w1.txt");
+            //         // try w2_weight.read_data_to_file("w2.txt");
+            //         // try w3_weight.read_data_to_file("w3.txt");
+
+            //         try w1_slate.read_data_to_file("w1-slate-elmul.txt");
+            //         try w3_slate.read_data_to_file("w3-slate.txt");
+
+            //         try attention_out.read_data_to_file("att-out.txt");
+            //         try slate.read_data_to_file("att.txt");
+            //         try out.read_data_to_file("out-before-add.txt");
+
+            //         try x.read_data_to_file("x-added.txt");
+            //         try xb.read_data_to_file("xb.txt");
+
+            //         try k_cache.read_data_to_file("k-rope.txt");
+            //         try q.read_data_to_file("q-rope.txt");
+            //         try v_cache.read_data_to_file("v.txt");
+
+            //         // try query_weight.read_data_to_file("wq-1.txt");
+            //         // try key_weight.read_data_to_file("wk-1.txt");
+            //         // try value_weight.read_data_to_file("wv-1.txt");
+            //         // try output_weight.read_data_to_file("wo-1.txt");
+            //         // try w1_weight.read_data_to_file("w1-1.txt");
+            //         // try w2_weight.read_data_to_file("w2-1.txt");
+            //         // try w3_weight.read_data_to_file("w3-1.txt");
+
+            //         unreachable;
+            //     }
+            // // }
+            // { //submit commands
+            //     var command = command_encoder.finish(null);
+            //     defer command.release();
+
+            //     core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            // }
         }
 
-        //if (true) unreachable;
+        // try x.read_data_to_file("almost-final-x.txt");
+        // if (true) unreachable;
 
         {
-            const command_encoder = core.device.createCommandEncoder(null);
+            // const command_encoder = core.device.createCommandEncoder(null);
+            // { //submit commands
+            //     var command = command_encoder.finish(null);
+            //     defer command.release();
+
+            //     core.queue.submit(&[_]*gpu.CommandBuffer{command});
+            //     // try model_weights.output_embedding.read_data_to_file("output-w.txt");
+
+            //     try x.read_data_to_file("final-x.txt");
+
+            //     unreachable;
+            // }
+
             rmsnorm_operator.execute(x, command_encoder);
             scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
 
             // const final_weights = model_weights.output_embedding orelse model_weights.token_embedding;
-            //tmat_operator.execute(model_weights.token_embedding, x, logits, null, command_encoder);
-            tmat_operator.execute(model_weights.output_embedding, x, logits, null, command_encoder);
+            tmat_operator.execute(logits, model_weights.output_embedding, x, null, command_encoder);
 
             argmax_operator.execute(max_index, logits, command_encoder);
 

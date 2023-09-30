@@ -56,7 +56,8 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let accum = slate[0];
   */
 
-  /*
+  
+  // Supposedly stable accumulation
   var accum: f32 = 0;
   var c: f32 = 0;
   for (var k : u32 = 0u; k < K; k += 1) {
@@ -68,12 +69,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     //accum += left[M_start + k];// * right[N_start + k];
     //let bla = right[0];
   }
- */
+ 
+  /* simple accumulation
   var accum: f32 = 0;
   var c: f32 = 0;
   for (var k : u32 = 0u; k < K; k += 1) {
     accum += left[M_start + k] * right[N_start + k];
   }
+  */
   
   output[params.output_offset + n * M + m] = accum;
   //output[params.output_offset + n * M + m] = f32(K);
