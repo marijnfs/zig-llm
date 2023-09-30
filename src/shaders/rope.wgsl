@@ -30,8 +30,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var k : u32 = 0u;
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
     for (var head_k : u32 = 0u; head_k < dim_per_head; head_k = head_k + 2u) {
-      let freq = 1.0 / pow(params.base_freq, f32(head_k) / f32(dim_per_head));
-      //let freq = 1.0 / freqs[head_k / 2];
+      let freq = freqs[head_k / 2];
       let bla = freqs[0];
       let val = f32(l) * freq;
       let real = cos(val);
