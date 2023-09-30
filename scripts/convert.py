@@ -55,14 +55,17 @@ def serialize_lookup_q8(file, tensor):
     # lookup_table = np.zeros(256, dtype=np.float16) 
     # lookup_values = np.zeros(N, dtype=np.uint8)
 
-    kmean_iterations = 2 #make lower for faster (but worse) results
-    init_range = np.linspace(flat.min(), flat.max(), 256, dtype=np.float16).reshape(-1, 1)
-    print("fitting")
-    kmeans = KMeans(n_clusters=256, max_iter=kmean_iterations, n_init=1, init=init_range).fit(flat_2d)
-    print("done")
+        # KMeans steps
+        # kmean_iterations = 16 #make lower for faster (but worse) results
+        # init_range = np.linspace(flat.min(), flat.max(), 256, dtype=np.float16).reshape(-1, 1)
+        # print("fitting")
+        # kmeans = KMeans(n_clusters=256, max_iter=kmean_iterations, n_init=1, init=init_range).fit(flat_2d)
+        # print("done")
 
-    lookup_values = kmeans.predict(flat_2d).flatten().astype(np.uint8)
-    lookup_table = kmeans.cluster_centers_.flatten().astype(np.float16)
+        # lookup_values = kmeans.predict(flat_2d).flatten().astype(np.uint8)
+        # lookup_table = kmeans.cluster_centers_.flatten().astype(np.float16)
+
+
 
     # lookup_table = k_means.cluster_centers_.astype(np.float16)
     # lookup_values = k_means.predict(flat_2d).astype(np.uint8)
@@ -84,8 +87,17 @@ def serialize_lookup_q8(file, tensor):
     #         idx = N - 1
     #     lookup_table[i] = flat[sorted_indices[idx]]
 
-    # min_val = np.min(flat)
-    # max_val = np.max(flat)
+    min_val = np.min(flat)
+    max_val = np.max(flat)
+
+    # Create lookup table, with 0 at idx 127
+    # Second linspace offset makes sure we don't have 0 twice
+    lookup_table = np.concatenate([np.linspace(min_val, 0, 128, dtype=np.float16), np.linspace(0, max_val, 129, dtype=np.float16)[1:]])
+
+    # Now create 256-1 compare table, such that we can simply binary search
+    # These will have the mean values between the values
+    compare_table = (lookup_table[1:] + lookup_table[:-1]) / 2.0
+    lookup_values = np.searchsorted(compare_table, flat).astype(np.uint8)
 
     # for i in range(256):
     #     idx = i * N // 255
