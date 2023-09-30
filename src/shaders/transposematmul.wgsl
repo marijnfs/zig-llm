@@ -29,8 +29,6 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let N = params.N;
   let K: u32 = params.K;
 
-  //var slate : array<f32, 4096>;
-
   if (m >= M || n >= N)
   {
     return;
@@ -40,8 +38,11 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let N_start = n * K;
 
   //var accum: f32 = 0.0;
+
+  // Reduction summation
+  /*  
+  var slate : array<f32, 4096>;
   
-  /*
   for (var k : u32 = 0u; k < K; k += 1) {
     slate[k] = left[M_start + k] * right[N_start + k];
   }
@@ -58,6 +59,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
   
   // Supposedly stable accumulation
+  /*
   var accum: f32 = 0;
   var c: f32 = 0;
   for (var k : u32 = 0u; k < K; k += 1) {
@@ -69,14 +71,16 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     //accum += left[M_start + k];// * right[N_start + k];
     //let bla = right[0];
   }
+ */
  
-  /* simple accumulation
+   // simple accumulation
+   
   var accum: f32 = 0;
   var c: f32 = 0;
   for (var k : u32 = 0u; k < K; k += 1) {
     accum += left[M_start + k] * right[N_start + k];
   }
-  */
+  
   
   output[params.output_offset + n * M + m] = accum;
   //output[params.output_offset + n * M + m] = f32(K);

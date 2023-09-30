@@ -1,7 +1,11 @@
-[v] Add n-kv-heads
-[] fix argument order tmat
-[] support 16fp and run 7B llama
 [] update format with checksum, so we can load our own models
   - alternative: implement the latest llama2.bin format
-[] support quantized weights
 [] normalize the operator order (output first) and dim = x in most kernels
+[] Add Mistral support
+
+
+[v] Add n-kv-heads
+[v] fix argument order tmat
+[v] support 16fp and run 7B llama
+  > 16fp not trivial, not clear what is implemented in wgsl
+[v] support quantized weights

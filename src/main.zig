@@ -85,7 +85,6 @@ pub fn init(app: *App) !void {
 
     const str = args.prompt orelse "";
     const tokens = try llm.tokenize(allocator, str, tokenizer);
-    // _ = tokens;
 
     std.log.info("Tokenized:", .{});
     const writer = std.io.getStdOut().writer();
@@ -95,12 +94,9 @@ pub fn init(app: *App) !void {
     }
     _ = try writer.writeAll("\n");
 
-    // const mat_operator = try MatOperator.init(allocator);
-
     // Because of different operations needing different parameters, I lazily copied the operations here to allow for different parameters to be used in one command buffer.
     // This is wasteful, since only a little parameter buffer is needed, not a whole pipeline.
     // TODO: improve this
-
     const tmat_operator = try operators.TransposeMatOperator.init(allocator);
     const tmat_operator_1 = try operators.TransposeMatOperator.init(allocator);
     const tmat_operator_2 = try operators.TransposeMatOperator.init(allocator);
@@ -256,13 +252,9 @@ pub fn init(app: *App) !void {
 
         const command_encoder = core.device.createCommandEncoder(null);
 
-        // _ = tokens_tensor;
-        // _ = embed_operator;
         embed_operator.execute(x, tokens_tensor, model_weights.token_embedding, L, command_encoder);
 
         for (model_weights.layers.items, 0..) |*layer, layer_idx| {
-            // const command_encoder = core.device.createCommandEncoder(null);
-
             const k_cache = if (mode == .Cached) k_caches.items[layer_idx] else k;
             const v_cache = if (mode == .Cached) v_caches.items[layer_idx] else v;
 
@@ -273,8 +265,6 @@ pub fn init(app: *App) !void {
             lookup_operator_4.execute(w1_weight, layer.w1, command_encoder);
             lookup_operator_5.execute(w2_weight, layer.w2, command_encoder);
             lookup_operator_6.execute(w3_weight, layer.w3, command_encoder);
-
-            // copy_operator.execute(xb, x, command_encoder);
 
             x.copy_to(xb, command_encoder);
 
@@ -297,7 +287,6 @@ pub fn init(app: *App) !void {
             add_operator.execute(x, out, command_encoder);
 
             x.copy_to(xb, command_encoder);
-            // copy_operator.execute(xb, x, command_encoder);
 
             rmsnorm_operator_1.execute(xb, command_encoder);
             scale_operator_1.execute(xb, layer.rms_ffn, command_encoder);
@@ -311,84 +300,13 @@ pub fn init(app: *App) !void {
 
             tmat_operator_6.execute(out, w2_weight, w1_slate, null, command_encoder);
 
-            // '        try x.read_data_to_file("x.txt");
-            //             try q.read_data_to_file("q-rope.txt");
-            //             try k_cache.read_data_to_file("k-rope.txt");
-            //             try v_cache.read_data_to_file("v.txt");
-            //             try key_weight.read_data_to_file("kw.txt");
-            //             try out.read_data_to_file("ffn-out.txt");
-            //             try attention_out.read_data_to_file("attention_out.txt");
-            //             try x.read_data_to_file("fin-out.txt");
-
-            //             if (true) unreachable;'
-
             add_operator_1.execute(x, out, command_encoder);
-
-            // if (layer_idx == 20) {
-            //     { //submit commands
-            //         var command = command_encoder.finish(null);
-            //         defer command.release();
-
-            //         core.queue.submit(&[_]*gpu.CommandBuffer{command});
-
-            //         // try w1_weight.read_data_to_file("w1.txt");
-            //         // try w2_weight.read_data_to_file("w2.txt");
-            //         // try w3_weight.read_data_to_file("w3.txt");
-
-            //         try w1_slate.read_data_to_file("w1-slate-elmul.txt");
-            //         try w3_slate.read_data_to_file("w3-slate.txt");
-
-            //         try attention_out.read_data_to_file("att-out.txt");
-            //         try slate.read_data_to_file("att.txt");
-            //         try out.read_data_to_file("out-before-add.txt");
-
-            //         try x.read_data_to_file("x-added.txt");
-            //         try xb.read_data_to_file("xb.txt");
-
-            //         try k_cache.read_data_to_file("k-rope.txt");
-            //         try q.read_data_to_file("q-rope.txt");
-            //         try v_cache.read_data_to_file("v.txt");
-
-            //         // try query_weight.read_data_to_file("wq-1.txt");
-            //         // try key_weight.read_data_to_file("wk-1.txt");
-            //         // try value_weight.read_data_to_file("wv-1.txt");
-            //         // try output_weight.read_data_to_file("wo-1.txt");
-            //         // try w1_weight.read_data_to_file("w1-1.txt");
-            //         // try w2_weight.read_data_to_file("w2-1.txt");
-            //         // try w3_weight.read_data_to_file("w3-1.txt");
-
-            //         unreachable;
-            //     }
-            // // }
-            // { //submit commands
-            //     var command = command_encoder.finish(null);
-            //     defer command.release();
-
-            //     core.queue.submit(&[_]*gpu.CommandBuffer{command});
-            // }
         }
 
-        // try x.read_data_to_file("almost-final-x.txt");
-        // if (true) unreachable;
-
         {
-            // const command_encoder = core.device.createCommandEncoder(null);
-            // { //submit commands
-            //     var command = command_encoder.finish(null);
-            //     defer command.release();
-
-            //     core.queue.submit(&[_]*gpu.CommandBuffer{command});
-            //     // try model_weights.output_embedding.read_data_to_file("output-w.txt");
-
-            //     try x.read_data_to_file("final-x.txt");
-
-            //     unreachable;
-            // }
-
             rmsnorm_operator.execute(x, command_encoder);
             scale_operator.execute(x, model_weights.final_rms_weight, command_encoder);
 
-            // const final_weights = model_weights.output_embedding orelse model_weights.token_embedding;
             tmat_operator.execute(logits, model_weights.output_embedding, x, null, command_encoder);
 
             argmax_operator.execute(max_index, logits, command_encoder);

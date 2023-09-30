@@ -24,13 +24,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   for (var k : u32 = 0u; k < params.dim; k = k + 1u) {
     let value =  M[m_offset + k];
 
+    /*
     let mult: f32 = value * value;
     let y: f32 = mult - c;
     let tmp: f32 = sum + y;
     c = (tmp - sum) - y;
     sum = tmp;
-
-    //sum += value * value;
+    */
+    sum += value * value;
   }
 
   sum /= f32(params.dim);
