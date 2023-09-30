@@ -75,6 +75,6 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     accum += left[M_start + k] * right[N_start + k];
   }
   
-  output[params.output_offset + n * M + m] = 1;//accum;
+  output[params.output_offset + n * M + m] = accum;
   //output[params.output_offset + n * M + m] = f32(K);
 }

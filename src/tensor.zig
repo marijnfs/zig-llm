@@ -392,6 +392,10 @@ pub const Tensor = struct {
         const file = try std.fs.cwd().createFile(path, .{});
         defer file.close();
 
+        // Setup buffered writer
+        var model_file_buffered = std.io.bufferedWriter(file.writer());
+        var model_writer = model_file_buffered.writer();
+
         // Copy result
         output_buffer.mapAsync(.{ .read = true }, 0, self.N * @sizeOf(f32), &response, callback);
         while (true) {
@@ -405,8 +409,10 @@ pub const Tensor = struct {
         const output_mapped = output_buffer.getConstMappedRange(f32, 0, self.N);
         defer output_buffer.unmap();
         for (output_mapped.?) |v| {
-            try file.writer().print("{d:.8} ", .{v});
+            try model_writer.print("{d:.8} ", .{v});
         }
+        try model_file_buffered.flush();
+
         std.debug.print("\n", .{});
     }
 
