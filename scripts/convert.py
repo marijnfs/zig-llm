@@ -49,22 +49,20 @@ def serialize_lookup_q8(file, tensor):
 
     print("first val:", flat[0])
 
-    sorted_indices = np.argsort(flat)
     N = len(flat)
 
     # lookup_table = np.zeros(256, dtype=np.float16) 
     # lookup_values = np.zeros(N, dtype=np.uint8)
 
-        # KMeans steps
-        # kmean_iterations = 16 #make lower for faster (but worse) results
-        # init_range = np.linspace(flat.min(), flat.max(), 256, dtype=np.float16).reshape(-1, 1)
-        # print("fitting")
-        # kmeans = KMeans(n_clusters=256, max_iter=kmean_iterations, n_init=1, init=init_range).fit(flat_2d)
-        # print("done")
+    kmean_iterations = 16 #make lower for faster (but worse) results
+    min_val = np.min(flat)
+    max_val = np.max(flat)
 
-        # lookup_values = kmeans.predict(flat_2d).flatten().astype(np.uint8)
-        # lookup_table = kmeans.cluster_centers_.flatten().astype(np.float16)
-
+    # init_range = np.linspace(flat.min(), flat.max(), 256, dtype=np.float16).reshape(-1, 1)
+    init_range = np.concatenate([np.linspace(min_val, 0, 128, dtype=np.float16), np.linspace(0, max_val, 129, dtype=np.float16)[1:]]).reshape(-1, 1)
+    print("fitting")
+    kmeans = KMeans(n_clusters=256, max_iter=kmean_iterations, n_init=1, init=init_range).fit(flat_2d)
+    print("done")
 
 
     # lookup_table = k_means.cluster_centers_.astype(np.float16)
