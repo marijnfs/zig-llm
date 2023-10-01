@@ -65,8 +65,8 @@ def serialize_lookup_q8(file, tensor):
     print("done")
 
 
-    # lookup_table = k_means.cluster_centers_.astype(np.float16)
-    # lookup_values = k_means.predict(flat_2d).astype(np.uint8)
+    lookup_table = k_means.cluster_centers_.astype(np.float16)
+    lookup_values = k_means.predict(flat_2d).astype(np.uint8)
 
     # for i in range(256):
     #     start = i * N // 256
@@ -85,17 +85,17 @@ def serialize_lookup_q8(file, tensor):
     #         idx = N - 1
     #     lookup_table[i] = flat[sorted_indices[idx]]
 
-    min_val = np.min(flat)
-    max_val = np.max(flat)
+    # min_val = np.min(flat)
+    # max_val = np.max(flat)
 
-    # Create lookup table, with 0 at idx 127
-    # Second linspace offset makes sure we don't have 0 twice
-    lookup_table = np.concatenate([np.linspace(min_val, 0, 128, dtype=np.float16), np.linspace(0, max_val, 129, dtype=np.float16)[1:]])
+    # # Create lookup table, with 0 at idx 127
+    # # Second linspace offset makes sure we don't have 0 twice
+    # lookup_table = np.concatenate([np.linspace(min_val, 0, 128, dtype=np.float16), np.linspace(0, max_val, 129, dtype=np.float16)[1:]])
 
-    # Now create 256-1 compare table, such that we can simply binary search
-    # These will have the mean values between the values
-    compare_table = (lookup_table[1:] + lookup_table[:-1]) / 2.0
-    lookup_values = np.searchsorted(compare_table, flat).astype(np.uint8)
+    # # Now create 256-1 compare table, such that we can simply binary search
+    # # These will have the mean values between the values
+    # compare_table = (lookup_table[1:] + lookup_table[:-1]) / 2.0
+    # lookup_values = np.searchsorted(compare_table, flat).astype(np.uint8)
 
     # for i in range(256):
     #     idx = i * N // 255
@@ -175,9 +175,9 @@ def save_layers_lookup_q8(file, n_layers, weights, weight_string):
         print(F"saving {key}")
         serialize_lookup_q8(file, w)
 
-def save_header(out_file, model, params):
+def save_header(out_file, model, params, has_rope_freq):
     major_version = 0
-    minor_version = 0
+    minor_version = 1
 
     out_file.write(struct.pack('I', 0x7a657865))
     out_file.write(struct.pack('I', major_version))
@@ -188,11 +188,21 @@ def save_header(out_file, model, params):
     n_kv_heads = params['n_heads']
     vocab_size = model['tok_embeddings.weight'].shape[0]
 
+
+    sliding_window = 0
+    if 'sliding_window' in params:
+        sliding_window = params['sliding_window']
+
+
     max_seq_len = 1024 #made up
+    basefreq = 10000.0 #default
+    if has_rope_freq:
+        basefreq = 0 #freqs come from array
+
 
     n_kv_heads = params['n_kv_heads'] if 'n_kv_heads' in params else params['n_heads']
-    header = struct.pack('iiiiiii', params['dim'], hidden_dim, params['n_layers'], params['n_heads'],
-                                    n_kv_heads, vocab_size, max_seq_len)
+    header = struct.pack('iiiiiiiif', params['dim'], hidden_dim, params['n_layers'], params['n_heads'],
+                                    n_kv_heads, vocab_size, max_seq_len, sliding_window, base_freq)
     out_file.write(header)
 
 
@@ -212,10 +222,16 @@ n_layers = model_params['n_layers']
 
 output_file = open(output_path, 'bw+')
 
-save_header(output_file, model_weights, model_params)
 
-for general_weights in ['tok_embeddings.weight', 'output.weight', 'norm.weight', 'rope.freqs']:
-    weights = model_weights[general_weights]
+has_rope_freq = 'rope.freqs' in model_weights
+save_header(output_file, model_weights, model_params, has_rope_freq=has_rope_freq)
+
+general_weights = ['tok_embeddings.weight', 'output.weight', 'norm.weight']
+if has_rope_freq:
+    general_weights.append('rope.freqs')
+
+for general_weight in general_weights:
+    weights = model_weights[general_weight]
     serialize_fp16(output_file, weights)
 
 save_layers_lookup_q8(output_file, n_layers, model_weights, "layers.{layer}.attention.wq.weight")
