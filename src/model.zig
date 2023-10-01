@@ -12,6 +12,11 @@ pub const ModelConfig = extern struct {
     seq_len: i32, // max sequence length
 };
 
+pub const ExtraConfig = struct {
+    sliding_window: i32,
+    base_freq: f32,
+};
+
 pub const LayerWeights = struct {
     rms_attention: *Tensor,
     query_weight: *Tensor,
@@ -26,13 +31,14 @@ pub const LayerWeights = struct {
 
 pub const ModelWeights = struct {
     config: ModelConfig,
+    extra_config: ExtraConfig,
 
     layers: std.ArrayList(LayerWeights),
 
     token_embedding: *Tensor,
     output_embedding: *Tensor,
     final_rms_weight: *Tensor,
-    freqs: *Tensor,
+    freqs: ?*Tensor,
 
     // final_class_weights: ?*Tensor,
 

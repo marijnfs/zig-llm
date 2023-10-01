@@ -77,8 +77,12 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
 
     std.debug.assert(header.magic == our_magic_byte);
 
-    if (header.major > 0) {
+    // Cur version: 0.1
+    if (header.major > 0 or header.minor > 1) {
         return error.VersionTooNew;
+    }
+    if (header.major == 0 and header.minor < 1) {
+        return error.VersionTooOld;
     }
 
     // Setup data
@@ -91,6 +95,7 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
 
     // Read config file
     var config = try model_reader.readStruct(model.ModelConfig);
+    var extra_config = try model_reader.readStruct(model.ExtraConfig);
 
     std.log.info("Config: {}", .{config});
 
@@ -141,8 +146,11 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
 
     var final_rms_weight = try read_f16(base_allocator, &[_]usize{dim}, model_reader, &weight_read_buffer);
 
-    const n_freqs = head_size / 2;
-    var freqs = try read_f16(base_allocator, &[_]usize{n_freqs}, model_reader, &weight_read_buffer);
+    var freqs: ?*Tensor = null;
+    if (extra_config.base_freq == 0.0) {
+        const n_freqs = head_size / 2;
+        freqs = try read_f16(base_allocator, &[_]usize{n_freqs}, model_reader, &weight_read_buffer);
+    }
 
     // Start reading weights
     var layer_weights = std.ArrayList(model.LayerWeights).init(base_allocator);
@@ -195,6 +203,7 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
 
     model_weights.* = .{
         .config = config,
+        .extra_config = extra_config,
         .layers = layer_weights,
         .token_embedding = token_embedding,
         .output_embedding = output_embedding,
