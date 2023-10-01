@@ -214,8 +214,8 @@ pub fn init(app: *App) !void {
 
     // Weight holders to uncompress into
     var query_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, dim }, .Storage);
-    var key_weight = try Tensor.init_f32(allocator, &[_]usize{ kv_dim, dim }, .Storage);
-    var value_weight = try Tensor.init_f32(allocator, &[_]usize{ kv_dim, dim }, .Storage);
+    var key_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, kv_dim }, .Storage);
+    var value_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, kv_dim }, .Storage);
 
     var output_weight = try Tensor.init_f32(allocator, &[_]usize{ dim, dim }, .Storage);
 

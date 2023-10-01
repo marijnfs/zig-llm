@@ -980,7 +980,7 @@ pub const RopeOperator = struct {
     pub fn execute(
         self: *RopeOperator,
         k: *Tensor,
-        freqs: *Tensor,
+        freqs: ?*Tensor,
         n_heads: usize,
         l_offset: ?usize,
         write_l_offset: ?usize,
@@ -1003,10 +1003,11 @@ pub const RopeOperator = struct {
             .layout = self.pipeline.getBindGroupLayout(0),
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, k.buffer, 0, k.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(1, freqs.buffer, 0, freqs.N * @sizeOf(f32)),
-                gpu.BindGroup.Entry.buffer(2, self.param_buffer, 0, @sizeOf(Params)),
+                //gpu.BindGroup.Entry.buffer(1, freqs.buffer, 0, freqs.N * @sizeOf(f32)),
+                gpu.BindGroup.Entry.buffer(1, self.param_buffer, 0, @sizeOf(Params)),
             },
         }));
+        _ = freqs;
         defer bindings.release();
 
         const dispatch_groups = DispatchGroups{

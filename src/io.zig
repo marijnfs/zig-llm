@@ -81,9 +81,6 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
     if (header.major > 0 or header.minor > 1) {
         return error.VersionTooNew;
     }
-    if (header.major == 0 and header.minor < 1) {
-        return error.VersionTooOld;
-    }
 
     // Setup data
 
@@ -95,7 +92,13 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
 
     // Read config file
     var config = try model_reader.readStruct(model.ModelConfig);
-    var extra_config = try model_reader.readStruct(model.ExtraConfig);
+
+    var extra_config = b: {
+        if (header.minor == 1) {
+            break :b try model_reader.readStruct(model.ExtraConfig);
+        }
+        break :b model.ExtraConfig{ .sliding_window = 0, .base_freq = 0 };
+    };
 
     std.log.info("Config: {}", .{config});
 
@@ -108,6 +111,8 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
     const head_size = dim / n_heads;
     const n_kv_heads = @as(usize, @intCast(config.n_kv_heads));
     const kv_dim = n_kv_heads * head_size;
+
+    std.log.info("kv dim: {}", .{kv_dim});
 
     // Read token embedding
     const read_f16 = struct {
@@ -152,6 +157,8 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
         freqs = try read_f16(base_allocator, &[_]usize{n_freqs}, model_reader, &weight_read_buffer);
     }
 
+    std.log.info("Extra Config: {}", .{extra_config});
+
     // Start reading weights
     var layer_weights = std.ArrayList(model.LayerWeights).init(base_allocator);
     try layer_weights.resize(n_layers);
@@ -163,12 +170,12 @@ pub fn read_model_weights_ours(base_allocator: std.mem.Allocator, base_reader: a
 
     // key_weight
     for (layer_weights.items) |*layer| {
-        layer.key_weight = try read_q8(base_allocator, &[_]usize{ kv_dim, dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
+        layer.key_weight = try read_q8(base_allocator, &[_]usize{ dim, kv_dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // value_weight
     for (layer_weights.items) |*layer| {
-        layer.value_weight = try read_q8(base_allocator, &[_]usize{ kv_dim, dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
+        layer.value_weight = try read_q8(base_allocator, &[_]usize{ dim, kv_dim }, model_reader, &q8_read_buffer, &weight_read_buffer);
     }
 
     // output_weight
@@ -389,6 +396,7 @@ pub fn read_model_weights_karpathy_legacy(base_allocator: std.mem.Allocator, rea
 
     model_weights.* = .{
         .config = config,
+        .extra_config = .{ .sliding_window = 0, .base_freq = 10000 },
         .layers = layer_weights,
         .token_embedding = token_embedding,
         .output_embedding = token_embedding,

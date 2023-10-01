@@ -12,7 +12,7 @@ pub const ModelConfig = extern struct {
     seq_len: i32, // max sequence length
 };
 
-pub const ExtraConfig = struct {
+pub const ExtraConfig = extern struct {
     sliding_window: i32,
     base_freq: f32,
 };
