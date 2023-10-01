@@ -65,8 +65,8 @@ def serialize_lookup_q8(file, tensor):
     print("done")
 
 
-    lookup_table = k_means.cluster_centers_.astype(np.float16)
-    lookup_values = k_means.predict(flat_2d).astype(np.uint8)
+    lookup_table = kmeans.cluster_centers_.flatten().astype(np.float16)
+    lookup_values = kmeans.predict(flat_2d).flatten().astype(np.uint8)
 
     # for i in range(256):
     #     start = i * N // 256
@@ -195,9 +195,9 @@ def save_header(out_file, model, params, has_rope_freq):
 
 
     max_seq_len = 1024 #made up
-    basefreq = 10000.0 #default
+    base_freq = 10000.0 #default
     if has_rope_freq:
-        basefreq = 0 #freqs come from array
+        base_freq = 0 #freqs come from array
 
 
     n_kv_heads = params['n_kv_heads'] if 'n_kv_heads' in params else params['n_heads']
