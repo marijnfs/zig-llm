@@ -14,7 +14,7 @@ struct Params {
   L_q : u32,
   n_heads: u32,
   n_kv_heads : u32,
-  K_max: u32,
+  key_window: u32,
 };
 
 @binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L * n_heads
@@ -22,28 +22,29 @@ struct Params {
 @binding(2) @group(0) var<storage, read> Q : array<f32>; //L * dim
 @binding(3) @group(0) var<uniform> params : Params;
 
-@compute @workgroup_size(1, 16, 16)
+@compute @workgroup_size(8, 8, 8)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-  let l_q : u32 = GlobalInvocationID.x; //sequence number
-  let l_k : u32 = GlobalInvocationID.y; 
-  let h : u32 = GlobalInvocationID.z;
+  let h : u32 = GlobalInvocationID.x; //Head index
+  let l_k : u32 = GlobalInvocationID.y; //key sequence number
+  let l_q : u32 = GlobalInvocationID.z; //query sequence number, always 0 in case of cached
 
-  if (l_q >= params.L_q || l_k >= params.K_max || h > params.n_heads)
+  if (l_q >= params.L_q || l_k >= params.key_window || h > params.n_heads)
   {
     return;
   }
 
   let dim_per_head = params.dim / params.n_heads;
+
+  let k_dim = dim_per_head * params.n_kv_heads;
   let head_per_q = params.n_heads / params.n_kv_heads;
 
-  var k_q : u32 = h * dim_per_head;
-  var k_k : u32 = (h / head_per_q) * dim_per_head;
+
+  var q_offset : u32 = h * dim_per_head;
+  var k_offset : u32 = (h / head_per_q) * dim_per_head;
 
   var dot = 0.0f;
-  for (var k_head : u32 = 0u; k_head < dim_per_head; k_head = k_head + 1u) {
-    dot += Q[l_q * params.dim + k_q] * K[l_k * params.dim + k_k];
-    k_q = k_q + 1u;
-    k_k = k_k + 1u;
+  for (var k : u32 = 0u; k < dim_per_head; k = k + 1u) {
+    dot += Q[l_q * params.dim + q_offset + k] * K[l_k * k_dim + k_offset + k];
   }
-  slate[h * (params.L_q * params.L_k) + l_q * (params.L_q) + l_k] = dot / sqrt(f32(dim_per_head));
+  slate[h * (params.L_q * params.L_k) + l_q * (params.L_k) + l_k] = dot / sqrt(f32(dim_per_head));
 }

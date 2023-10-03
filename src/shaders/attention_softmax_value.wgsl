@@ -14,52 +14,52 @@ struct Params {
   L_q : u32,
   n_heads: u32,
   n_kv_heads: u32,
-  K_max: u32,
+  key_window: u32,
 };
 
 @binding(0) @group(0) var<storage, read_write> slate : array<f32>; //L * L
 @binding(1) @group(0) var<uniform> params : Params;
 
-@compute @workgroup_size(1)
+@compute @workgroup_size(8)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-  let l : u32 = GlobalInvocationID.x; //sequence number
+  let h : u32 = GlobalInvocationID.x; //head index
+  let l : u32 = GlobalInvocationID.y; //sequence number
   
   let L = params.L_k;
   let L2 = params.L_k * params.L_q;
 
   // invocations often need to be diadic or power of some number, so we need to explicitly check this of lengths that are off
-  if (l >= params.L_q)
+  if (l >= params.L_q || h >= params.n_heads)
   {
     return;
   }
 
   let dim_per_head = params.dim / params.n_heads;
 
-  for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {
-    //find max
-    var max_value = slate[h * L2 + l * L];
-    for (var l_ : u32 = 0u; l_ < params.K_max; l_ = l_ + 1u) {
-      let value = slate[h * L2 + l * L + l_];
-      if (value > max_value)
-      {
-        max_value = value;
-      }
-    }
-
-    // calculate exponential
-    var sum = 0.0f;
-    for (var l_ : u32 = 0u; l_ < params.K_max; l_ = l_ + 1u) {
-      let value = slate[h * L2 + l * L + l_];
-      let exp_value = exp(value - max_value);
-      sum += exp_value;
-      slate[h * L2 + l * L + l_] = exp_value;
-    }
-
-    // normalize
-    for (var l_ : u32 = 0u; l_ < params.K_max; l_ = l_ + 1u) {
-      let value = slate[h * L2 + l * L + l_];
-      slate[h * L2 + l * L + l_] = value / sum;
+  //find max
+  var max_value = slate[h * L2 + l * L];
+  for (var l_ : u32 = 0u; l_ < params.key_window; l_ = l_ + 1u) {
+    let value = slate[h * L2 + l * L + l_];
+    if (value > max_value)
+    {
+      max_value = value;
     }
   }
+
+  // calculate exponential
+  var sum = 0.0f;
+  for (var l_ : u32 = 0u; l_ < params.key_window; l_ = l_ + 1u) {
+    let value = slate[h * L2 + l * L + l_];
+    let exp_value = exp(value - max_value);
+    sum += exp_value;
+    slate[h * L2 + l * L + l_] = exp_value;
+  }
+
+  // normalize
+  for (var l_ : u32 = 0u; l_ < params.key_window; l_ = l_ + 1u) {
+    let value = slate[h * L2 + l * L + l_];
+    slate[h * L2 + l * L + l_] = value / sum;
+  }
+
   
 }

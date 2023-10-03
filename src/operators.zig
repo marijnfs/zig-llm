@@ -29,7 +29,7 @@ pub const AttentionOperator = struct {
         L_q: u32,
         n_heads: u32,
         n_kv_heads: u32,
-        K_max: u32,
+        key_window: u32,
     };
 
     pub fn init(allocator: std.mem.Allocator) !*AttentionOperator {
@@ -93,7 +93,7 @@ pub const AttentionOperator = struct {
         slate: *Tensor,
         n_heads: usize,
         n_kv_heads: usize,
-        K_max: usize,
+        key_window: usize,
         command_encoder: anytype,
     ) void {
         std.log.debug("Q:{any} K:{any} V:{any}", .{ Q.shape, K.shape, V.shape });
@@ -107,7 +107,7 @@ pub const AttentionOperator = struct {
             .dim = @as(u32, @intCast(Q.shape[0])),
             .n_heads = @as(u32, @intCast(n_heads)),
             .n_kv_heads = @intCast(n_kv_heads),
-            .K_max = @as(u32, @intCast(K_max)),
+            .key_window = @as(u32, @intCast(key_window)),
         };
 
         core.queue.writeBuffer(self.param_buffer, 0, std.mem.asBytes(&params));
@@ -145,9 +145,9 @@ pub const AttentionOperator = struct {
 
         {
             const dispatch_groups = DispatchGroups{
-                .X = div_ceil(params.L_q, 1),
-                .Y = div_ceil(params.K_max, 16),
-                .Z = div_ceil(params.n_heads, 16),
+                .X = div_ceil(params.n_heads, 8),
+                .Y = div_ceil(params.key_window, 8),
+                .Z = div_ceil(params.L_q, 8),
             };
             const pass_encoder = command_encoder.beginComputePass(null);
             pass_encoder.setPipeline(self.pipeline_slate);
@@ -158,8 +158,8 @@ pub const AttentionOperator = struct {
 
         {
             const dispatch_groups = DispatchGroups{
-                .X = params.L_q,
-                .Y = 1,
+                .X = div_ceil(params.n_heads, 8),
+                .Y = params.L_q,
                 .Z = 1,
             };
             const pass_encoder = command_encoder.beginComputePass(null);
@@ -171,8 +171,8 @@ pub const AttentionOperator = struct {
 
         {
             const dispatch_groups = DispatchGroups{
-                .X = params.L_q,
-                .Y = div_ceil(params.dim, 32),
+                .X = div_ceil(params.dim, 32),
+                .Y = params.L_q,
                 .Z = 1,
             };
 
