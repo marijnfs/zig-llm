@@ -22,14 +22,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   }
 
   let head_dim = params.dim / params.n_heads;
-  let v_dim = head_dim * params.n_kv_heads;
+  let kv_dim = head_dim * params.n_kv_heads;
   let q_per_v = params.n_heads / params.n_kv_heads;
 
 
   let h = k / head_dim;
   let h_v = h / q_per_v;
 
-  let k_head = h % head_dim; //index in the head, needed to compute proper value id taking into account n_kv_heads
+  let k_head = k % head_dim; //index in the head, needed to compute proper value id taking into account n_kv_heads
 
   let k_v = h_v * head_dim + k_head;
 
@@ -37,7 +37,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 
   output[l * params.dim + k] = 0;
   for (var l_ : u32 = 0u; l_ < params.key_window; l_ = l_ + 1u) {
-    let value = V[l_ * v_dim + k_v];
+    let value = V[l_ * kv_dim + k_v];
     let att = slate[h * L2 + l * params.L_k + l_];
     output[l * params.dim + k] += att * value;
   }
