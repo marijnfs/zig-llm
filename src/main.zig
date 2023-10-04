@@ -84,7 +84,7 @@ pub fn init(app: *App) !void {
     const tokenizer = try io.read_tokenizer(allocator, vocab_size, tokenizer_path);
 
     const str = args.prompt orelse "";
-    const tokens = try llm.tokenize(allocator, str, tokenizer);
+    const tokens = try llm.tokenize(allocator, str, tokenizer, .{});
 
     std.log.info("Tokenized:", .{});
     const writer = std.io.getStdOut().writer();
