@@ -142,7 +142,8 @@ pub fn init(app: *App) !void {
     const n_kv_heads = @as(usize, @intCast(config.n_kv_heads));
     const dim = @as(usize, @intCast(config.dim));
     const hidden_dim = @as(usize, @intCast(config.hidden_dim));
-    const kv_dim = n_kv_heads * (dim / n_heads);
+    const dim_per_head = dim / n_heads;
+    const kv_dim = n_kv_heads * dim_per_head;
 
     // Steps in a layer:
     // -> RMS norm x, with weights
@@ -272,11 +273,11 @@ pub fn init(app: *App) !void {
             scale_operator.execute(xb, layer.rms_attention, command_encoder);
 
             tmat_operator.execute(q, query_weight, xb, null, command_encoder);
-            tmat_operator_1.execute(k_cache, key_weight, xb, cur_idx, command_encoder);
             tmat_operator_2.execute(v_cache, value_weight, xb, cur_idx, command_encoder);
+            tmat_operator_1.execute(k_cache, key_weight, xb, cur_idx, command_encoder);
 
-            rope_operator.execute(k_cache, model_weights.freqs, n_heads, cur_idx, cur_idx, command_encoder);
-            rope_operator_1.execute(q, model_weights.freqs, n_heads, cur_idx, 0, command_encoder);
+            rope_operator.execute(k_cache, model_weights.freqs, n_kv_heads, dim_per_head, cur_idx, cur_idx, command_encoder);
+            rope_operator_1.execute(q, model_weights.freqs, n_heads, dim_per_head, cur_idx, 0, command_encoder);
 
             const L_k = token_idx + 1;
             attention_operator.execute(attention_out, q, k_cache, v_cache, slate, n_heads, n_kv_heads, L_k, command_encoder);

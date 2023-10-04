@@ -1,6 +1,7 @@
 
 struct Params {
   dim : u32,
+  dim_per_head : u32,
   L : u32,
   n_heads: u32,
   base_freq: f32,
@@ -25,7 +26,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   let l = l_base + params.l_offset;
   let write_l = l_base + params.write_l_offset;
 
-  let dim_per_head = params.dim / params.n_heads;
+  let dim_per_head = params.dim_per_head;
 
   var k : u32 = 0u;
   for (var h: u32 = 0u; h < params.n_heads; h = h + 1u) {

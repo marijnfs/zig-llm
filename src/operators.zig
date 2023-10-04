@@ -946,6 +946,7 @@ pub const RopeOperator = struct {
 
     const Params = struct {
         dim: u32,
+        dim_per_head: u32,
         L: u32,
         n_heads: u32,
         base_freq: f32,
@@ -982,15 +983,18 @@ pub const RopeOperator = struct {
         k: *Tensor,
         freqs: ?*Tensor,
         n_heads: usize,
+        dim_per_head: usize,
         l_offset: ?usize,
         write_l_offset: ?usize,
         command_encoder: anytype,
     ) void {
         std.debug.assert(k.shape.len == 2);
 
+        const dim = k.shape[0];
         const params: Params = .{
             .L = @as(u32, @intCast(k.shape[1])),
-            .dim = @as(u32, @intCast(k.shape[0])),
+            .dim = @as(u32, @intCast(dim)),
+            .dim_per_head = @as(u32, @intCast(dim_per_head)),
             .n_heads = @as(u32, @intCast(n_heads)),
             .base_freq = 10000.0,
             .l_offset = @as(u32, @intCast(l_offset orelse 0)),
@@ -1164,9 +1168,9 @@ pub const TransposeMatOperator = struct {
         std.debug.assert(left.shape[1] == output.shape[0]);
         // std.debug.assert(right.shape[1] == output.shape[1]);
 
-        const dim = left.shape[0];
+        const output_dim = output.shape[0];
 
-        const output_offset = if (target_idx) |idx| idx * dim else 0;
+        const output_offset = if (target_idx) |idx| idx * output_dim else 0;
 
         const params: Params = .{
             .M = @as(u32, @intCast(left.shape[1])),

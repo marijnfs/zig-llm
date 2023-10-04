@@ -34,8 +34,6 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     return;
   }
 
-  let dim_per_head = params.dim / params.n_heads;
-
   //find max
   var max_value = slate[h * L2 + l * L];
   for (var l_ : u32 = 0u; l_ < params.key_window; l_ = l_ + 1u) {

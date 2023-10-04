@@ -10,12 +10,16 @@ pub const Tokenizer = struct {
     back_map: std.StringHashMap(Token),
 };
 
-pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Tokenizer) ![]u32 {
+pub fn tokenize(allocator_: std.mem.Allocator, str: []const u8, tokenizer: *Tokenizer, options: struct { add_bof: bool = true }) ![]u32 {
     var arena = std.heap.ArenaAllocator.init(allocator_);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var tokens = std.ArrayList(u32).init(allocator);
+
+    if (options.add_bof) {
+        try tokens.append(1);
+    }
 
     // encode bytes
     for (str) |byte| {

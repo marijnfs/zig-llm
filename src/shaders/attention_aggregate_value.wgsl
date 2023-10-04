@@ -8,7 +8,7 @@ struct Params {
 };
 
 @binding(0) @group(0) var<storage, read_write> output : array<f32>; //L * dim
-@binding(1) @group(0) var<storage, read> V : array<f32>; //L * dim
+@binding(1) @group(0) var<storage, read> V : array<f32>; //L * kdim
 @binding(2) @group(0) var<storage, read_write> slate : array<f32>; //L * L
 @binding(3) @group(0) var<uniform> params : Params;
 
